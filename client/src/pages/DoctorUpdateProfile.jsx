@@ -49,11 +49,11 @@ export default function DoctorUpdateProfile() {
             }
 
             try {
-                const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+                const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
 
-                if (response.data.userType !== 'doctor') {
+                if (response.data.userType !== 'doctor' && response.data.user_type !== 'doctor') {
                     setError('Access denied. Not a doctor account.');
                     return;
                 }
@@ -134,7 +134,7 @@ export default function DoctorUpdateProfile() {
         }
 
         try {
-            const response = await axios.put('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/update-profile', 
+            const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/update-profile`, 
                 formData, 
                 {
                     headers: { Authorization: `Bearer ${token}` }
@@ -212,7 +212,7 @@ export default function DoctorUpdateProfile() {
                                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10 cursor-pointer hover:opacity-80 transition-opacity">
                                         <AvatarImage src="/female-doctor.jpg" alt={doctor?.fullName} />
                                         <AvatarFallback className="bg-teal-100 text-teal-800 text-xs sm:text-sm">
-                                            {doctor?.fullName ? doctor.fullName.split(" ").map((n) => n[0]).join("") : "Dr"}
+                                            {doctor?.fullName ? (doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map((n) => n[0]).join("") : "Dr"}
                                         </AvatarFallback>
                                     </Avatar>
                                 </DropdownMenuTrigger>

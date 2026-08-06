@@ -33,7 +33,7 @@ const daysOfWeek = [
     { key: "sunday", label: "Sunday" },
 ];
 
-const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://smart-healthcare-appointment-and-triage.onrender.com';
+const API_BASE_URL = import.meta?.env?.VITE_API_URL || `${import.meta.env.VITE_API_URL}`;
 
 const getAppointmentDateTime = (dateString, timeString) => {
     if (!dateString) return null;
@@ -128,8 +128,24 @@ export default function DoctorSchedulePage() {
                 setDoctor(profileRes.data);
                 setAppointments(appointmentsRes.data);
 
-                // Set dummy schedule data for now
-                setWorkingHours(scheduleRes.data);
+                // Merge with default working hours to prevent undefined errors
+                const defaultWorkingHours = {
+                    monday: { enabled: false, start: "09:00", end: "17:00" },
+                    tuesday: { enabled: false, start: "09:00", end: "17:00" },
+                    wednesday: { enabled: false, start: "09:00", end: "17:00" },
+                    thursday: { enabled: false, start: "09:00", end: "17:00" },
+                    friday: { enabled: false, start: "09:00", end: "17:00" },
+                    saturday: { enabled: false, start: "09:00", end: "17:00" },
+                    sunday: { enabled: false, start: "09:00", end: "17:00" },
+                };
+                const fetchedHours = scheduleRes.data || {};
+                const safeHours = { ...defaultWorkingHours };
+                for (const day of Object.keys(defaultWorkingHours)) {
+                    if (fetchedHours[day]) {
+                        safeHours[day] = { ...defaultWorkingHours[day], ...fetchedHours[day] };
+                    }
+                }
+                setWorkingHours(safeHours);
                 setBlockedTimes(profileRes.data.blockedTimes || []);
             } catch (err) {
                 console.error("Error fetching data:", err.response || err);
@@ -152,10 +168,13 @@ export default function DoctorSchedulePage() {
     };
 
     const handleWorkingHoursChange = (day, field, value) => {
-        setWorkingHours(prev => ({
-            ...prev,
-            [day]: { ...prev[day], [field]: value },
-        }));
+        setWorkingHours(prev => {
+            const currentDay = prev?.[day] || { enabled: false, start: "09:00", end: "17:00" };
+            return {
+                ...prev,
+                [day]: { ...currentDay, [field]: value },
+            };
+        });
     };
 
     const handleSaveChanges = async () => {
@@ -223,7 +242,7 @@ const getStatusBadge = (status) => {
                 `${API_BASE_URL}/api/schedule/blocked-times/${blockId}`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            setBlockedTimes(prev => prev.filter(block => block._id !== blockId));
+            setBlockedTimes(prev => prev.filter(block => (block?.id || block?._id) !== blockId));
         } catch (err) {
             console.error("Error deleting block:", err);
             alert(err.response?.data?.message || 'Failed to delete block.');
@@ -270,7 +289,7 @@ const getStatusBadge = (status) => {
         setPrescriptionError('');
         setIsPatientDetailsOpen(true);
         if (appointment?._id) {
-            fetchPrescriptionForAppointment(appointment._id);
+            fetchPrescriptionForAppointment((appointment?.id || appointment?._id));
         }
     };
 
@@ -318,7 +337,7 @@ const getStatusBadge = (status) => {
 
             setAppointments(prevAppointments =>
                 prevAppointments.map(apt =>
-                    apt._id === appointmentId ? { ...apt, status: 'completed' } : apt
+                    (apt?.id || apt?._id) === appointmentId ? { ...apt, status: 'completed' } : apt
                 )
             );
 
@@ -361,9 +380,9 @@ const getStatusBadge = (status) => {
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10 cursor-pointer hover:opacity-80 transition-opacity">
-                                        <AvatarImage src="/female-doctor.jpg" alt={doctor.fullName} />
+                                        <AvatarImage src="/female-doctor.jpg" alt={(doctor?.fullName || doctor?.full_name || 'N/A')} />
                                         <AvatarFallback className="bg-teal-100 text-teal-800 text-xs sm:text-sm">
-                                            {doctor.fullName.split(" ").map((n) => n[0]).join("")}
+                                            {(doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map((n) => n[0]).join("")}
                                         </AvatarFallback>
                                     </Avatar>
                                 </DropdownMenuTrigger>
@@ -483,22 +502,22 @@ const getStatusBadge = (status) => {
                                                         {dateAppointments
                                                             .sort((a, b) => a.time.localeCompare(b.time))
                                                             .map((appointment) => (
-                                                                <div key={appointment._id} className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4 p-3 sm:p-4 border border-gray-200 rounded-lg hover:bg-emerald-50 transition-colors">
+                                                                <div key={(appointment?.id || appointment?._id)} className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4 p-3 sm:p-4 border border-gray-200 rounded-lg hover:bg-emerald-50 transition-colors">
                                                                     <div className="flex items-center space-x-3 sm:space-x-4">
                                                                         <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                                                                             <AvatarImage src="/placeholder.svg" />
                                                                             <AvatarFallback className="bg-teal-100 text-teal-800 text-xs sm:text-sm">
-                                                                                {appointment.patientNameForVisit ?
-                                                                                    appointment.patientNameForVisit.split(" ").map((n) => n[0]).join("") :
-                                                                                    appointment.patient?.fullName ?
-                                                                                    appointment.patient.fullName.split(" ").map((n) => n[0]).join("") :
+                                                                                {appointment.patientNameForVisit || appointment.patient_name_for_visit ?
+                                                                                    (appointment?.patientNameForVisit || appointment?.patient_name_for_visit || 'Patient').split(" ").map((n) => n[0]).join("") :
+                                                                                    appointment.patient?.fullName || appointment.patient?.full_name ?
+                                                                                    (appointment?.patient?.fullName || appointment?.patient?.full_name || 'Patient').split(" ").map((n) => n[0]).join("") :
                                                                                     "??"
                                                                                 }
                                                                             </AvatarFallback>
                                                                         </Avatar>
                                                                         <div className="flex-1 min-w-0">
                                                                             <h4 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                                                                                {appointment.patientNameForVisit || appointment.patient?.fullName || "Unknown Patient"}
+                                                                                {appointment.patientNameForVisit || appointment.patient_name_for_visit || appointment.patient?.fullName || appointment.patient?.full_name || "Unknown Patient"}
                                                                             </h4>
                                                                             <div className="flex flex-wrap items-center gap-2 mt-1">
                                                                                 {getStatusBadge(getDisplayStatus(appointment))}
@@ -510,7 +529,7 @@ const getStatusBadge = (status) => {
                                                                     </div>
                                                                     <div className="flex-1 sm:min-w-0 space-y-1">
                                                                         <p className="text-xs sm:text-sm text-gray-600">
-                                                                            <span className="font-medium">Reason:</span> {appointment.reasonForVisit || appointment.primaryReason || "No reason specified"}
+                                                                            <span className="font-medium">Reason:</span> {appointment.reasonForVisit || appointment.reason_for_visit || appointment.primaryReason || appointment.primary_reason || "No reason specified"}
                                                                         </p>
                                                                         {appointment.symptoms && (
                                                                             <p className="text-xs sm:text-sm text-gray-600">
@@ -526,7 +545,7 @@ const getStatusBadge = (status) => {
                                                                             <Button
                                                                                 size="sm"
                                                                                 className="bg-teal-600 text-white hover:bg-teal-700 w-full text-xs sm:text-sm"
-                                                                                onClick={() => handleCompleteConsultation(appointment._id)}
+                                                                                onClick={() => handleCompleteConsultation((appointment?.id || appointment?._id))}
                                                                             >
                                                                                 Start Consultation
                                                                             </Button>
@@ -567,21 +586,21 @@ const getStatusBadge = (status) => {
                                             </div>
                                             <div className="flex items-center space-x-3 sm:space-x-4">
                                                 <Switch
-                                                    checked={workingHours[day.key].enabled}
+                                                    checked={workingHours[day.key]?.enabled || false}
                                                     onCheckedChange={(checked) => handleWorkingHoursChange(day.key, "enabled", checked)}
                                                 />
-                                                {workingHours[day.key].enabled && (
+                                                {workingHours[day.key]?.enabled && (
                                                     <div className="flex items-center space-x-2 flex-1">
                                                         <Input
                                                             type="time"
-                                                            value={workingHours[day.key].start}
+                                                            value={workingHours[day.key]?.start || ""}
                                                             onChange={(e) => handleWorkingHoursChange(day.key, "start", e.target.value)}
                                                             className="w-24 sm:w-32 text-xs sm:text-sm"
                                                         />
                                                         <span className="text-gray-500 text-xs sm:text-sm">to</span>
                                                         <Input
                                                             type="time"
-                                                            value={workingHours[day.key].end}
+                                                            value={workingHours[day.key]?.end || ""}
                                                             onChange={(e) => handleWorkingHoursChange(day.key, "end", e.target.value)}
                                                             className="w-24 sm:w-32 text-xs sm:text-sm"
                                                         />
@@ -670,7 +689,7 @@ const getStatusBadge = (status) => {
                                 <CardContent>
                                     <div className="space-y-3">
                                         {blockedTimes.map((block) => (
-                                            <div key={block._id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0 p-3 border border-gray-200 rounded-lg">
+                                            <div key={(block?.id || block?._id)} className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0 p-3 border border-gray-200 rounded-lg">
                                                 <div>
                                                     <div className="font-medium text-sm sm:text-base">{block.reason}</div>
                                                     <div className="text-xs sm:text-sm text-gray-500">
@@ -679,7 +698,7 @@ const getStatusBadge = (status) => {
                                                 </div>
                                                 <div className="flex space-x-2 justify-end">
                                                     <Button variant="outline" size="icon" className="h-6 w-6 sm:h-8 sm:w-8" disabled><Edit className="h-3 w-3 sm:h-4 sm:w-4" /></Button>
-                                                    <Button variant="outline" size="icon" className="h-6 w-6 sm:h-8 sm:w-8 text-red-600 hover:text-red-700" onClick={() => handleDeleteBlock(block._id)}>
+                                                    <Button variant="outline" size="icon" className="h-6 w-6 sm:h-8 sm:w-8 text-red-600 hover:text-red-700" onClick={() => handleDeleteBlock((block?.id || block?._id))}>
                                                         <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
                                                     </Button>
                                                 </div>
@@ -717,7 +736,7 @@ const getStatusBadge = (status) => {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Full Name</Label>
-                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.patientNameForVisit || selectedAppointment.patient?.fullName || 'N/A'}</p>
+                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.patientNameForVisit || selectedAppointment.patient_name_for_visit || selectedAppointment.patient?.fullName || selectedAppointment.patient?.full_name || 'N/A'}</p>
                                     </div>
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Email</Label>
@@ -725,25 +744,25 @@ const getStatusBadge = (status) => {
                                     </div>
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Phone Number</Label>
-                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.phoneNumber || selectedAppointment.patient?.phoneNumber || 'N/A'}</p>
+                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.phoneNumber || selectedAppointment.phone_number || selectedAppointment.patient?.phoneNumber || selectedAppointment.patient?.phone_number || 'N/A'}</p>
                                     </div>
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Date of Birth</Label>
                                         <p className="text-xs sm:text-sm text-gray-900">
-                                            {selectedAppointment.birthDate
-                                                ? new Date(selectedAppointment.birthDate).toLocaleDateString()
-                                                : selectedAppointment.patient?.dateOfBirth
-                                                    ? new Date(selectedAppointment.patient.dateOfBirth).toLocaleDateString()
+                                            {selectedAppointment.birthDate || selectedAppointment.birth_date
+                                                ? new Date(selectedAppointment.birthDate || selectedAppointment.birth_date).toLocaleDateString()
+                                                : selectedAppointment.patient?.dateOfBirth || selectedAppointment.patient?.date_of_birth || selectedAppointment.patient?.dob
+                                                    ? new Date(selectedAppointment.patient.dateOfBirth || selectedAppointment.patient.date_of_birth || selectedAppointment.patient.dob).toLocaleDateString()
                                                     : 'N/A'}
                                         </p>
                                     </div>
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Sex</Label>
-                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.sex || selectedAppointment.patient?.gender || 'N/A'}</p>
+                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.sex || selectedAppointment.patient?.gender || selectedAppointment.patient?.sex || 'N/A'}</p>
                                     </div>
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Primary Language</Label>
-                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.primaryLanguage || 'N/A'}</p>
+                                        <p className="text-xs sm:text-sm text-gray-900">{selectedAppointment.primaryLanguage || selectedAppointment.primary_language || 'N/A'}</p>
                                     </div>
                                 </div>
                                 {selectedAppointment.patient?.address && (
@@ -772,7 +791,7 @@ const getStatusBadge = (status) => {
                                     </div>
                                     <div>
                                         <Label className="text-xs sm:text-sm font-medium text-gray-700">Consultation Fee</Label>
-                                        <p className="text-xs sm:text-sm text-gray-900">₹{selectedAppointment.consultationFeeAtBooking || 'N/A'}</p>
+                                        <p className="text-xs sm:text-sm text-gray-900">₹{selectedAppointment.consultationFeeAtBooking || selectedAppointment.consultation_fee_at_booking || 'N/A'}</p>
                                     </div>
                                 </div>
                             </div>
@@ -784,7 +803,7 @@ const getStatusBadge = (status) => {
                                 <div>
                                     <Label className="text-xs sm:text-sm font-medium text-gray-700">Primary Reason for Visit</Label>
                                     <p className="text-xs sm:text-sm text-gray-900 mt-1">
-                                        {selectedAppointment.primaryReason || selectedAppointment.reasonForVisit || 'Not specified'}
+                                        {selectedAppointment.primaryReason || selectedAppointment.primary_reason || selectedAppointment.reasonForVisit || selectedAppointment.reason_for_visit || 'Not specified'}
                                     </p>
                                 </div>
 
@@ -1006,7 +1025,7 @@ const getStatusBadge = (status) => {
                         {getDisplayStatus(selectedAppointment) === 'upcoming' && (
                             <Button
                                 className="bg-teal-600 text-white hover:bg-teal-700 w-full sm:w-auto text-sm"
-                                onClick={() => handleCompleteConsultation(selectedAppointment._id)}
+                                onClick={() => handleCompleteConsultation((selectedAppointment?.id || selectedAppointment?._id))}
                             >
                                 Start Consultation
                             </Button>

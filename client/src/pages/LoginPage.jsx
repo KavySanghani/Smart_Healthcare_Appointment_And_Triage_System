@@ -45,7 +45,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/login', loginData);
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/login`, loginData);
       localStorage.setItem('token', response.data.token);
 
       if (response.data.profileComplete === false) {
@@ -75,7 +75,7 @@ export default function LoginPage() {
   };
   
   const handleGoogleLogin = () => {
-    window.location.href = 'https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/google';
+    window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/google`;
   };
 
   const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -89,7 +89,7 @@ export default function LoginPage() {
     setError('');
     setSuccess('');
     try {
-      const response = await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/resend-verification', {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/resend-verification`, {
         email: formData.email,
         userType: userType
       });

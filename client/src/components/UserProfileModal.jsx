@@ -21,12 +21,9 @@ import {
 } from "lucide-react";
 
 export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) {
-  // Early return BEFORE any hooks to maintain hook call order
-  if (!patient) return null;
-
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({ fullName: '' });
-  const isDoctor = patient?.userType === 'doctor';
+  const isDoctor = patient?.userType === 'doctor' || patient?.user_type === 'doctor';
 
   // When the patient data is available, populate the form
   useEffect(() => {
@@ -39,7 +36,7 @@ export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) 
     if (isDoctor) return;
     const token = localStorage.getItem('token');
     try {    
-      const response = await axios.put('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', formData, {
+      const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/profile`, formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       onProfileUpdate(response.data); // Update the state in the parent component
@@ -60,27 +57,29 @@ export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) 
     setFormData({ fullName: patient.fullName });
   };
 
-  const doctorHighlights = useMemo(() => ([
+  const doctorHighlights = useMemo(() => {
+    if (!patient) return [];
+    return [
     {
       label: "Specialization",
-      value: patient.specialization || 'Not provided',
+      value: patient?.specialization || 'Not provided',
       icon: Stethoscope
     },
     {
       label: "Experience",
-      value: patient.experience ? `${patient.experience} yrs` : 'Not provided',
+      value: patient?.experience ? `${patient?.experience} yrs` : 'Not provided',
       icon: GraduationCap
     },
     {
       label: "Consultation Fee",
-      value: patient.consultationFee !== undefined && patient.consultationFee !== null && patient.consultationFee !== ''
-        ? `₹${patient.consultationFee}`
+      value: patient?.consultationFee !== undefined && patient?.consultationFee !== null && patient?.consultationFee !== ''
+        ? `₹${patient?.consultationFee}`
         : 'Not provided',
       icon: Wallet
     },
     {
       label: "License Number",
-      value: patient.licenseNumber || 'Not provided',
+      value: patient?.licenseNumber || 'Not provided',
       icon: IdCard
     },
     {
@@ -88,20 +87,24 @@ export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) 
       value: patient.averageRating ? `${patient.averageRating} / 5` : 'No ratings yet',
       icon: Star
     }
-  ]), [patient.specialization, patient.experience, patient.consultationFee, patient.licenseNumber]);
+  ];
+  }, [patient?.specialization, patient?.experience, patient?.consultationFee, patient?.licenseNumber]);
 
   const workingHours = useMemo(() => {
-    if (!patient.workingHours) return [];
-    return Object.entries(patient.workingHours)
+    if (!patient) return [];
+    if (!patient?.workingHours) return [];
+    return Object.entries(patient?.workingHours)
       .filter(([, data]) => data?.enabled)
       .map(([day, data]) => ({
         day: day.charAt(0).toUpperCase() + day.slice(1),
         start: data.start,
         end: data.end
       }));
-  }, [patient.workingHours]);
+  }, [patient?.workingHours]);
 
   const dialogSizeClass = isDoctor ? "sm:max-w-[650px]" : "sm:max-w-[425px]";
+
+  if (!patient) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -125,7 +128,7 @@ export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) 
           <div className="space-y-5 py-2">
             <div className="flex flex-col sm:flex-row gap-4">
               <Avatar className="h-16 w-16 sm:h-20 sm:w-20 bg-emerald-100 text-emerald-800 text-2xl">
-                <AvatarImage src="/female-doctor.jpg" alt={patient.fullName} />
+                <AvatarImage src="/female-doctor.jpg" alt={(patient?.fullName || patient?.full_name || 'N/A')} />
                 <AvatarFallback>
                   {patient.fullName?.split(" ").map((n) => n[0]).join("")}
                 </AvatarFallback>
@@ -133,15 +136,15 @@ export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) 
               <div className="flex-1">
                 <p className="text-xs uppercase tracking-[0.2em] text-emerald-600 font-semibold mb-1">Doctor workspace</p>
                 <h2 className="text-xl font-semibold text-gray-900">
-                  Dr. {patient.fullName}
+                  Dr. {(patient?.fullName || patient?.full_name || 'N/A')}
                 </h2>
                 <div className="flex flex-wrap gap-2 mt-3">
                   <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                    {patient.specialization || 'Specialization not set'}
+                    {patient?.specialization || 'Specialization not set'}
                   </Badge>
-                  <Badge variant={patient.isVerified ? "default" : "outline"} className={patient.isVerified ? "bg-teal-600 hover:bg-teal-700" : ""}>
+                  <Badge variant={(patient?.isVerified || patient?.is_verified) ? "default" : "outline"} className={(patient?.isVerified || patient?.is_verified) ? "bg-teal-600 hover:bg-teal-700" : ""}>
                     <CheckCircle2 className="h-3 w-3 mr-1" />
-                    {patient.isVerified ? 'Verified' : 'Pending verification'}
+                    {(patient?.isVerified || patient?.is_verified) ? 'Verified' : 'Pending verification'}
                   </Badge>
                   {patient.isProfileComplete && (
                     <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-700">
@@ -251,7 +254,7 @@ export function UserProfileModal({ isOpen, onClose, patient, onProfileUpdate }) 
           <div className="py-4 space-y-4">
             <div>
               <Label className="text-sm font-medium text-gray-500">Full Name</Label>
-              <p className="text-base">{patient.fullName}</p>
+              <p className="text-base">{patient?.fullName || patient?.full_name || 'N/A'}</p>
             </div>
             <div>
               <Label className="text-sm font-medium text-gray-500">Email</Label>

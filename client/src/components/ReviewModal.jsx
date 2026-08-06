@@ -23,10 +23,10 @@ export function ReviewModal({ isOpen, onClose, appointment }) {
     const token = localStorage.getItem('token');
 
     try {
-      await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/reviews', 
+      await axios.post(`${import.meta.env.VITE_API_URL}/api/reviews`, 
         {
-          doctorId: appointment.doctor._id,
-          appointmentId: appointment._id,
+          doctorId: (appointment?.doctor?.id || appointment?.doctor?._id),
+          appointmentId: (appointment?.id || appointment?._id),
           rating,
           comment
         }, 

@@ -18,7 +18,7 @@ export default function VideoCallPage() {
     if (userType === 'doctor') {
       const token = localStorage.getItem('token');
       if (token) {
-        axios.put(`https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/${roomId}/complete`, {}, {
+        axios.put(`${import.meta.env.VITE_API_URL}/api/appointments/${roomId}/complete`, {}, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(err => console.error("Failed to complete appointment", err));
       }

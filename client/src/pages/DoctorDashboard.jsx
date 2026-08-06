@@ -137,15 +137,15 @@ export default function DoctorDashboard() {
             }
             try {
                 const [profileRes, appointmentsRes] = await Promise.all([
-                    axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
                         headers: { Authorization: `Bearer ${token}` }
                     }),
-                    axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/doctor', {
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/appointments/doctor`, {
                         headers: { Authorization: `Bearer ${token}` }
                     })
                 ]);
 
-                if (profileRes.data.userType !== 'doctor') {
+                if (profileRes.data.userType !== 'doctor' && profileRes.data.user_type !== 'doctor') {
                     setError('Access denied. Not a doctor account.');
                     localStorage.removeItem('token');
                     window.location.href = '/login';
@@ -171,7 +171,7 @@ export default function DoctorDashboard() {
         try {
             const token = localStorage.getItem('token');
             const response = await axios.get(
-                `https://smart-healthcare-appointment-and-triage.onrender.com/api/summary/appointment/${appointmentId}`,
+                `${import.meta.env.VITE_API_URL}/api/summary/appointment/${appointmentId}`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
@@ -198,7 +198,7 @@ export default function DoctorDashboard() {
         try {
             const token = localStorage.getItem('token');
             const response = await axios.get(
-                `https://smart-healthcare-appointment-and-triage.onrender.com/api/triage/appointment/${appointmentId}`,
+                `${import.meta.env.VITE_API_URL}/api/triage/appointment/${appointmentId}`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
@@ -265,8 +265,8 @@ export default function DoctorDashboard() {
         if (appointments.length > 0) {
             const upcomingAppts = appointments.filter(canStartConsultation);
             upcomingAppts.forEach(apt => {
-                fetchAISummary(apt._id);
-                fetchAITriage(apt._id);
+                fetchAISummary((apt?.id || apt?._id));
+                fetchAITriage((apt?.id || apt?._id));
             });
         }
     }, [appointments]);
@@ -300,7 +300,7 @@ export default function DoctorDashboard() {
 
    const highPriorityCount = useMemo(() => {
         return actionableUpcomingAppointments.filter(apt => {
-            const priority = triageResults[apt._id]?.priority || apt.triagePriority;
+            const priority = triageResults[(apt?.id || apt?._id)]?.priority || apt.triagePriority;
             return priority === 'RED' || priority === 'P1';
         }).length;
     }, [actionableUpcomingAppointments, triageResults]);
@@ -337,25 +337,25 @@ export default function DoctorDashboard() {
         try {
             const token = localStorage.getItem('token');
             await axios.put(
-                `https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/${appointmentId}/complete`,
+                `${import.meta.env.VITE_API_URL}/api/appointments/${appointmentId}/complete`,
                 {},
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
             // Optimistically update local state so UI reflects completion if the doctor stays on this page
-            setAppointments(prev => prev.map(a => a._id === appointmentId ? { ...a, status: 'completed' } : a));
+            setAppointments(prev => prev.map(a => (a?.id || a?._id) === appointmentId ? { ...a, status: 'completed' } : a));
         } catch (err) {
             console.error('Failed to mark appointment as completed:', err?.response || err);
         }
     };
 
     const generateAISummary = (apt) => {
-        if (aiSummaries[apt._id]) {
-            return aiSummaries[apt._id];
+        if (aiSummaries[(apt?.id || apt?._id)]) {
+            return aiSummaries[(apt?.id || apt?._id)];
         }
 
         // Fallback to generated summary from form data
-        let summary = `Patient is scheduled for a consultation regarding: ${apt.primaryReason || apt.reasonForVisit || 'Not specified'}. `;
+        let summary = `Patient is scheduled for a consultation regarding: ${apt.primaryReason || apt.primary_reason || apt.reasonForVisit || apt.reason_for_visit || 'Not specified'}. `;
         let symptoms = [...(apt.symptomsList || [])];
         if (apt.symptomsOther) {
             symptoms.push(apt.symptomsOther);
@@ -400,8 +400,8 @@ export default function DoctorDashboard() {
     );
 
     // --- Admin Verification Check ---
-    if (!doctor.isVerified) {
-        return <VerificationPending doctorName={doctor.fullName} onLogout={handleLogout} />;
+    if ((!(doctor?.isVerified || doctor?.is_verified) && !doctor.is_verified)) {
+        return <VerificationPending doctorName={(doctor?.fullName || doctor?.full_name || 'N/A')} onLogout={handleLogout} />;
     }
 
     const heroActions = [
@@ -463,9 +463,9 @@ export default function DoctorDashboard() {
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10 cursor-pointer">
-                                        <AvatarImage src="/female-doctor.jpg" alt={doctor.fullName} />
+                                        <AvatarImage src="/female-doctor.jpg" alt={(doctor?.fullName || doctor?.full_name || 'N/A')} />
                                         <AvatarFallback className="bg-teal-100 text-teal-800 text-xs sm:text-sm">
-                                            {doctor.fullName.split(" ").map((n) => n[0]).join("")}
+                                            {(doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map((n) => n[0]).join("")}
                                         </AvatarFallback>
                                     </Avatar>
                                 </DropdownMenuTrigger>
@@ -512,7 +512,7 @@ export default function DoctorDashboard() {
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div className="flex-1">
                                 <h1 className="text-2xl sm:text-[26px] font-bold text-gray-900">
-                                    {getTimeBasedGreeting()}, Dr. {doctor.fullName.split(' ').pop()}!
+                                    {getTimeBasedGreeting()}, Dr. {(doctor?.fullName || doctor?.full_name || 'Doctor').split(' ').pop()}!
                                 </h1>
                                 <p className="text-sm sm:text-base text-gray-600 mt-1">
                                     You have {actionableUpcomingAppointments.length} upcoming appointments.
@@ -570,31 +570,34 @@ export default function DoctorDashboard() {
                                     </TabsList>
                                         <TabsContent value="queue" className="space-y-3 sm:space-y-4 mt-4">
                                           {sortedUpcomingAppointments.length > 0 ? sortedUpcomingAppointments.map((appointment) => (
-                                            <div key={appointment._id} className="flex flex-col sm:flex-row items-center sm:items-center space-y-3 sm:space-y-0 sm:space-x-4 p-3 sm:p-4 border rounded-lg hover:bg-emerald-50">
+                                            <div key={(appointment?.id || appointment?._id)} className="flex flex-col sm:flex-row items-center sm:items-center space-y-3 sm:space-y-0 sm:space-x-4 p-3 sm:p-4 border rounded-lg hover:bg-emerald-50">
                                                 <Avatar className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0 mx-auto sm:mx-0">
                                                     <AvatarImage src="/placeholder.svg" />
                                                     <AvatarFallback className="text-xs sm:text-sm">
-                                                        {appointment.patientNameForVisit ? appointment.patientNameForVisit.split(" ").map((n) => n[0]).join("") : 'N/A'}
+                                                        {appointment.patientNameForVisit || appointment.patient_name_for_visit || appointment.patient?.fullName || appointment.patient?.full_name ? 
+                                                            (appointment.patientNameForVisit || appointment.patient_name_for_visit || appointment.patient?.fullName || appointment.patient?.full_name || 'Patient').split(" ").map((n) => n[0]).join("") : 
+                                                            'N/A'
+                                                        }
                                                     </AvatarFallback>
                                                 </Avatar>
                                                 <div className="flex-1 min-w-0 text-center sm:text-left">
                                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-2 sm:space-y-0">
                                                         <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                                                            {appointment.patientNameForVisit || 'N/A'}
+                                                            {appointment.patientNameForVisit || appointment.patient_name_for_visit || appointment.patient?.fullName || appointment.patient?.full_name || 'N/A'}
                                                         </h3>
-                                                        {loadingTriage[appointment._id] ? (
+                                                        {loadingTriage[(appointment?.id || appointment?._id)] ? (
                                                             <Badge variant="outline" className="animate-pulse text-xs w-fit mx-auto sm:mx-0">
                                                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                                                                 Triaging...
                                                             </Badge>
                                                                 ) : (
-                                                            <Badge variant="outline" className={`${getPriorityClasses(triageResults[appointment._id]?.priority || appointment.triagePriority || 'GREEN')} text-xs w-fit mx-auto sm:mx-0`}>
-                                                            {getPriorityLabel(triageResults[appointment._id]?.priority || appointment.triagePriority, triageResults[appointment._id]?.label || appointment.triageLabel)}
+                                                            <Badge variant="outline" className={`${getPriorityClasses(triageResults[(appointment?.id || appointment?._id)]?.priority || appointment.triagePriority || 'GREEN')} text-xs w-fit mx-auto sm:mx-0`}>
+                                                            {getPriorityLabel(triageResults[(appointment?.id || appointment?._id)]?.priority || appointment.triagePriority, triageResults[(appointment?.id || appointment?._id)]?.label || appointment.triageLabel)}
                                                             </Badge>
                                                             )}
                                                     </div>
                                                     <p className="text-xs sm:text-sm text-gray-600 mb-2 font-medium">
-                                                        Reason: {appointment.primaryReason || appointment.reasonForVisit || 'Not specified'}
+                                                        Reason: {appointment.primaryReason || appointment.primary_reason || appointment.reasonForVisit || appointment.reason_for_visit || 'Not specified'}
                                                     </p>
                                                     <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-4 text-xs sm:text-sm text-gray-600 justify-center sm:justify-start">
                                                         <div className="flex items-center space-x-1 justify-center sm:justify-start">
@@ -606,16 +609,16 @@ export default function DoctorDashboard() {
                                                 <div className="flex flex-col space-y-2 w-full sm:w-auto">
                                                     {canStartConsultation(appointment) ? (
                                                         <Link 
-                                                            to={`/call/${appointment._id}`} 
+                                                            to={`/call/${(appointment?.id || appointment?._id)}`} 
                                                             state={{ 
                                                                 userName: doctor.fullName,
                                                                 userType: 'doctor',
-                                                                userid: appointment._id
+                                                                userid: (appointment?.id || appointment?._id)
                                                             }}
                                                         >
                                                             <Button
                                                                 size="sm"
-                                                                onClick={() => handleClick(appointment._id)}
+                                                                onClick={() => handleClick((appointment?.id || appointment?._id))}
                                                                 className="bg-teal-600 text-white hover:bg-teal-700 w-full sm:w-auto text-xs sm:text-sm"
                                                             >
                                                                 Start Consultation
@@ -633,17 +636,17 @@ export default function DoctorDashboard() {
 
                                     <TabsContent value="analysis" className="space-y-3 sm:space-y-4 mt-4">
                                         {sortedUpcomingAppointments.length > 0 ? sortedUpcomingAppointments.map((appointment) => {
-                                            const triage = triageResults[appointment._id];
+                                            const triage = triageResults[(appointment?.id || appointment?._id)];
                                             const priority = triage?.priority || appointment.triagePriority || 'GREEN';
                                             
                                             return (
                                                 <AITriageCard 
-                                                    key={appointment._id} 
-                                                    patientName={appointment.patientNameForVisit || 'N/A'} 
+                                                    key={(appointment?.id || appointment?._id)} 
+                                                    patientName={appointment.patientNameForVisit || appointment.patient_name_for_visit || appointment.patient?.fullName || appointment.patient?.full_name || 'N/A'} 
                                                     urgency={priority}
                                                     aiSummary={generateAISummary(appointment)} 
                                                     riskFactors={generateRiskFactors(appointment)}
-                                                    isLoading={loadingSummaries[appointment._id]}
+                                                    isLoading={loadingSummaries[(appointment?.id || appointment?._id)]}
                                                 />
                                             );
                                         }) : (
@@ -674,21 +677,21 @@ export default function DoctorDashboard() {
                             <CardContent className="p-3 sm:p-6 space-y-3">
                                 {upcomingAppointmentsToday.length > 0 ? (
                                     upcomingAppointmentsToday.slice(0, 4).map((appointment) => {
-                                        const priority = triageResults[appointment._id]?.priority || appointment.triagePriority || 'GREEN';
-                                        const label = triageResults[appointment._id]?.label || appointment.triageLabel;
+                                        const priority = triageResults[(appointment?.id || appointment?._id)]?.priority || appointment.triagePriority || 'GREEN';
+                                        const label = triageResults[(appointment?.id || appointment?._id)]?.label || appointment.triageLabel;
 
                                         return (
                                             <div
-                                                key={appointment._id}
+                                                key={(appointment?.id || appointment?._id)}
                                                 className="p-3 sm:p-4 border border-emerald-100 rounded-xl bg-emerald-50/60 hover:bg-emerald-50 transition"
                                             >
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="min-w-0 flex-1">
                                                         <p className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                                                            {appointment.patientNameForVisit || 'N/A'}
+                                                            {appointment.patientNameForVisit || appointment.patient_name_for_visit || appointment.patient?.fullName || appointment.patient?.full_name || 'N/A'}
                                                         </p>
                                                         <p className="text-xs sm:text-sm text-gray-600 truncate">
-                                                            Reason: {appointment.primaryReason || appointment.reasonForVisit || 'Consultation'}
+                                                            Reason: {appointment.primaryReason || appointment.primary_reason || appointment.reasonForVisit || appointment.reason_for_visit || 'Consultation'}
                                                         </p>
                                                     </div>
                                                     <Badge

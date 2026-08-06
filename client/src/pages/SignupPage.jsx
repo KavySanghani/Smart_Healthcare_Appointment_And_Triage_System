@@ -44,7 +44,7 @@ export default function SignupPage() {
     setIsLoading(true);
     
     try {
-      const response = await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/signup', formData);
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/signup`, formData);
       setSuccess(response.data.message);
     } catch (error) {
       const message = error.response?.data?.message || "An error occurred during signup.";

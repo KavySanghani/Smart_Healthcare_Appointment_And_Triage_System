@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar, Clock, FileText, Pill, Plus, X, Save, Loader2, ArrowLeft } from "lucide-react";
 
-const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://smart-healthcare-appointment-and-triage.onrender.com';
+const API_BASE_URL = import.meta?.env?.VITE_API_URL || `${import.meta.env.VITE_API_URL}`;
 
 const DEFAULT_PRESCRIPTION_ROW = { medication: '', dosage: '', instructions: '', duration: '' };
 
@@ -62,7 +62,7 @@ export default function PrescriptionPage() {
           ? appointmentsResponse.data
           : appointmentsResponse.data?.appointments || [];
 
-        const foundAppointment = doctorAppointments.find((apt) => apt._id === appointmentId);
+        const foundAppointment = doctorAppointments.find((apt) => (apt?.id || apt?._id) === appointmentId);
 
         if (!foundAppointment) {
           setError('Appointment not found');

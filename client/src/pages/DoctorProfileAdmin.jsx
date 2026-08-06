@@ -15,7 +15,7 @@ export default function DoctorProfilePage() {
   useEffect(() => {
     const fetchDoctorProfile = async () => {
       try {
-        const response = await axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/doctors/${id}`);
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/doctors/${id}`);
         setDoctor(response.data);
       } catch (err) {
         setError('Could not fetch doctor profile.');
@@ -56,10 +56,10 @@ export default function DoctorProfilePage() {
           <CardHeader className="text-center p-8 bg-teal-50/50 border-b">
             <Avatar className="w-32 h-32 mx-auto mb-4 border-4 border-white shadow-md">
               <AvatarFallback className="text-4xl">
-                {doctor.fullName.split(" ").map(n => n[0]).join("")}
+                {(doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map(n => n[0]).join("")}
               </AvatarFallback>
             </Avatar>
-            <CardTitle className="text-3xl font-bold text-gray-900">{doctor.fullName}</CardTitle>
+            <CardTitle className="text-3xl font-bold text-gray-900">{doctor?.fullName || doctor?.full_name || 'N/A'}</CardTitle>
             <Badge className="mt-2 bg-teal-100 text-teal-800 text-md py-1 px-3">
               {doctor.specialization}
             </Badge>

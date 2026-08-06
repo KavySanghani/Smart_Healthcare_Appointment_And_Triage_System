@@ -26,12 +26,12 @@ export default function AdminDoctorProfilePage() {
         // Using the admin-specific endpoint to get FULL details (including email/phone/license)
         // If you haven't created this specific endpoint yet, you might need to use your general /api/doctors/${id}
         // but ensure it returns the sensitive fields for admins.
-        const response = await axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/user/${id}`, {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/admin/user/${id}`, {
              headers: { Authorization: `Bearer ${token}` }
         });
         
         // Ensure we are looking at a doctor
-        if (response.data.userType !== 'doctor') {
+        if (response.data.userType !== 'doctor' && response.data.user_type !== 'doctor') {
              setError('This user is not a doctor.');
         } else {
              setDoctor(response.data);
@@ -80,20 +80,20 @@ export default function AdminDoctorProfilePage() {
         <CardHeader className="text-center p-6 md:p-8 bg-cyan-50/50 border-b">
           <Avatar className="w-20 h-20 md:w-32 md:h-32 mx-auto mb-4 border-4 border-white shadow-md">
             {/* Assuming your backend might provide a profile picture URL, otherwise fallback */}
-             <AvatarImage src={doctor.profilePicture || "/default-avatar.jpg"} alt={doctor.fullName} />
+             <AvatarImage src={doctor.profilePicture || "/default-avatar.jpg"} alt={(doctor?.fullName || doctor?.full_name || 'N/A')} />
             <AvatarFallback className="text-4xl bg-cyan-200 text-cyan-800">
-              {doctor.fullName.split(" ").map(n => n[0]).join("")}
+              {(doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map(n => n[0]).join("")}
             </AvatarFallback>
           </Avatar>
-          <CardTitle className="text-2xl md:text-3xl font-bold text-gray-900">{doctor.fullName}</CardTitle>
+          <CardTitle className="text-2xl md:text-3xl font-bold text-gray-900">{doctor?.fullName || doctor?.full_name || 'N/A'}</CardTitle>
           
            <div className="flex justify-center items-center gap-3 mt-3">
              <Badge className="bg-teal-100 text-teal-800 text-md hover:bg-teal-200">
                 {doctor.specialization || 'General'}
              </Badge>
              {/* Admin Status Badge */}
-             <Badge variant={doctor.isVerified ? "default" : "destructive"} className={doctor.isVerified ? "bg-green-600" : "bg-amber-600"}>
-                {doctor.isVerified ? "Verified Doctor" : "Pending Verification"}
+             <Badge variant={(doctor?.isVerified || doctor?.is_verified) ? "default" : "destructive"} className={(doctor?.isVerified || doctor?.is_verified) ? "bg-green-600" : "bg-amber-600"}>
+                {(doctor?.isVerified || doctor?.is_verified) ? "Verified Doctor" : "Pending Verification"}
              </Badge>
           </div>
         </CardHeader>
@@ -125,7 +125,7 @@ export default function AdminDoctorProfilePage() {
 
           <div className="mb-8">
             <h3 className="font-bold text-lg md:text-xl mb-3 text-gray-800 flex items-center">
-                About Dr. {doctor.fullName.split(' ').slice(-1)}
+                About Dr. {(doctor?.fullName || doctor?.full_name || 'Doctor').split(' ').slice(-1)}
             </h3>
             <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">
                 {doctor.bio || 'No biography provided by this doctor.'}

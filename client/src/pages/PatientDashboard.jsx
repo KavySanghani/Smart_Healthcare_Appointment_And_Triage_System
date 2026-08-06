@@ -35,10 +35,10 @@ export default function PatientDashboard() {
 
       try {
         const [profileResponse, appointmentsResponse] = await Promise.all([
-          axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+          axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
             headers: { Authorization: `Bearer ${token}` }
           }),
-          axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/my-appointments', {
+          axios.get(`${import.meta.env.VITE_API_URL}/api/appointments/my-appointments`, {
             headers: { Authorization: `Bearer ${token}` }
           })
         ]);
@@ -58,7 +58,7 @@ export default function PatientDashboard() {
     const aptToReview = location.state?.showReviewFor;
     
     if (aptToReview) {
-      const freshAppointmentData = appointments.find(a => a._id === aptToReview._id);
+      const freshAppointmentData = appointments.find(a => (a?.id || a?._id) === (aptToReview?.id || aptToReview?._id));
 
       setReviewModalAppointment(freshAppointmentData || aptToReview);
       
@@ -78,12 +78,12 @@ export default function PatientDashboard() {
     const token = localStorage.getItem('token');
     try {
       
-      await axios.put(`https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/${appointmentId}/cancel`, {}, {
+      await axios.put(`${import.meta.env.VITE_API_URL}/api/appointments/${appointmentId}/cancel`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setAppointments(prevAppointments =>
         prevAppointments.map(apt =>
-          apt._id === appointmentId ? { ...apt, status: 'cancelled' } : apt
+          (apt?.id || apt?._id) === appointmentId ? { ...apt, status: 'cancelled' } : apt
         )
       );
       
@@ -129,9 +129,9 @@ export default function PatientDashboard() {
               <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Avatar className="cursor-pointer w-8 h-8 sm:w-10 sm:h-10">
-                      <AvatarImage src="/patient-consultation.png" alt={patient.fullName} />
+                      <AvatarImage src="/patient-consultation.png" alt={patient?.fullName || patient?.full_name || 'Patient'} />
                       <AvatarFallback className="bg-teal-100 text-teal-800">
-                        {patient.fullName.split(" ").map((n) => n[0]).join("")}
+                        {(patient?.fullName || patient?.full_name || 'Patient').split(" ").map((n) => n[0]).join("")}
                       </AvatarFallback>
                     </Avatar>
                   </DropdownMenuTrigger>
@@ -153,7 +153,7 @@ export default function PatientDashboard() {
 
       <div className="container mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-6 lg:py-8">
         <div className="mb-4 sm:mb-6 lg:mb-8">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">Welcome back, {patient.fullName.split(' ')[0]}!</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">Welcome back, {(patient?.fullName || patient?.full_name || 'Patient').split(' ')[0]}!</h1>
           <p className="text-xs sm:text-sm lg:text-base text-gray-600">Manage your appointments and health journey.</p>
         </div>
 
@@ -205,16 +205,16 @@ export default function PatientDashboard() {
               {upcomingAppointments.length > 0 ? (
                   <div className="space-y-3 sm:space-y-4">
                     {upcomingAppointments.map((apt) => (
-                      <div key={apt._id} className="flex flex-col gap-3 p-3 sm:p-4 border rounded-lg bg-emerald-50/50">
+                      <div key={(apt?.id || apt?._id)} className="flex flex-col gap-3 p-3 sm:p-4 border rounded-lg bg-emerald-50/50">
                         <div className="flex items-start gap-3 sm:gap-4">
                           <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0">
                             <AvatarImage src="/female-doctor.jpg" />
                             <AvatarFallback>Dr</AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-sm sm:text-base truncate">{apt.doctor.fullName}</h3>
-                            <p className="text-xs sm:text-sm font-medium text-teal-800">For: {apt.patientNameForVisit}</p>
-                            <p className="text-xs sm:text-sm text-gray-600">{apt.doctor.specialization}</p>
+                            <h3 className="font-semibold text-sm sm:text-base truncate">{apt.doctor?.fullName || apt.doctor?.full_name || 'Doctor'}</h3>
+                            <p className="text-xs sm:text-sm font-medium text-teal-800">For: {apt.patientNameForVisit || 'Patient'}</p>
+                            <p className="text-xs sm:text-sm text-gray-600">{apt.doctor?.specialization || 'General'}</p>
                             <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 text-xs sm:text-sm text-gray-600">
                               <div className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -232,9 +232,9 @@ export default function PatientDashboard() {
 
                         <div className="flex flex-col sm:flex-row gap-2">
                           <Link 
-                            to={`/call/${apt._id}`} 
+                            to={`/call/${(apt?.id || apt?._id)}`} 
                             state={{ 
-                              userName: patient.fullName,
+                              userName: patient?.fullName || patient?.full_name || 'Patient',
                               userType: 'patient', 
                               appointment: apt 
                             }}
@@ -253,7 +253,7 @@ export default function PatientDashboard() {
                             variant="destructive"
                             size="sm"
                             className="min-h-[36px] h-9 text-xs sm:text-sm flex-1"
-                            onClick={() => handleCancelAppointment(apt._id)}
+                            onClick={() => handleCancelAppointment((apt?.id || apt?._id))}
                           >
                             Cancel
                           </Button>
@@ -281,16 +281,16 @@ export default function PatientDashboard() {
               {pastAppointments.length > 0 ? (
                 <div className="space-y-3 sm:space-y-4">
                   {pastAppointments.map((apt) => (
-                    <div key={apt._id} className="flex flex-col sm:flex-row gap-3 p-3 sm:p-4 border rounded-lg bg-emerald-50/50">
+                    <div key={(apt?.id || apt?._id)} className="flex flex-col sm:flex-row gap-3 p-3 sm:p-4 border rounded-lg bg-emerald-50/50">
                       <div className="flex items-start gap-3 sm:gap-4 flex-1">
                         <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0">
                           <AvatarImage src="/female-doctor.jpg" />
                           <AvatarFallback>Dr</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-sm sm:text-base truncate">{apt.doctor.fullName}</h3>
-                          <p className="text-xs sm:text-sm font-medium text-teal-800">For: {apt.patientNameForVisit}</p>
-                          <p className="text-xs sm:text-sm text-gray-600">{apt.doctor.specialization}</p>
+                          <h3 className="font-semibold text-sm sm:text-base truncate">{apt.doctor?.fullName || apt.doctor?.full_name || 'Doctor'}</h3>
+                          <p className="text-xs sm:text-sm font-medium text-teal-800">For: {apt.patientNameForVisit || 'Patient'}</p>
+                          <p className="text-xs sm:text-sm text-gray-600">{apt.doctor?.specialization || 'General'}</p>
                           <div className="flex items-center gap-1 mt-2">
                             <div className="flex items-center gap-1 text-xs sm:text-sm text-gray-600">
                               <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -304,7 +304,7 @@ export default function PatientDashboard() {
                           {apt.status.charAt(0).toUpperCase() + apt.status.slice(1)}
                         </Badge>
                         {apt.status === 'completed' && (
-                          <Link to={`/patient/prescription/${apt._id}`} className="w-full sm:w-auto">
+                          <Link to={`/patient/prescription/${(apt?.id || apt?._id)}`} className="w-full sm:w-auto">
                             <Button
                               variant="outline"
                               size="sm"

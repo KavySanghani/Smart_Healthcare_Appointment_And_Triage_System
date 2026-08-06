@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card.jsx";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar.jsx";
 import { Loader2, ArrowLeft, FileText, Pill, Calendar, Clock, FileDown } from "lucide-react";
-const API_BASE_URL = 'https://smart-healthcare-appointment-and-triage.onrender.com';
+const API_BASE_URL = `${import.meta.env.VITE_API_URL}`;
 
 const PatientPrescriptionView = () => {
   const { appointmentId } = useParams();
@@ -29,7 +29,7 @@ const PatientPrescriptionView = () => {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (response.data.success) {
-          setRecord(response.data.medicalRecord);
+          setRecord(response.data.medicalRecord || response.data.medical_record);
         } else {
           setError("Could not find a prescription for this appointment.");
         }
@@ -56,7 +56,7 @@ const PatientPrescriptionView = () => {
 
     try {
       const response = await axios.get(
-        `${API_BASE_URL}/api/prescriptions/${record._id}/pdf`,
+        `${API_BASE_URL}/api/prescriptions/${(record?.id || record?._id)}/pdf`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob',
@@ -68,7 +68,7 @@ const PatientPrescriptionView = () => {
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;
-      a.download = `prescription-${record._id}.pdf`;
+      a.download = `prescription-${(record?.id || record?._id)}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -142,12 +142,12 @@ const PatientPrescriptionView = () => {
                 <Label className="text-sm">Doctor</Label>
                 <div className="flex items-center space-x-3 mt-2">
                   <Avatar>
-                    <AvatarImage src="/female-doctor.jpg" alt={record.doctor.fullName} />
+                    <AvatarImage src="/female-doctor.jpg" alt={record.doctor?.fullName || record.doctor?.full_name} />
                     <AvatarFallback>Dr</AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-semibold">{record.doctor.fullName}</p>
-                    <p className="text-sm text-gray-500">{record.doctor.specialization}</p>
+                    <p className="font-semibold">{record.doctor?.fullName || record.doctor?.full_name}</p>
+                    <p className="text-sm text-gray-500">{record.doctor?.specialization}</p>
                   </div>
                 </div>
               </div>
@@ -155,11 +155,11 @@ const PatientPrescriptionView = () => {
                 <Label className="text-sm">Patient</Label>
                 <div className="flex items-center space-x-3 mt-2">
                   <Avatar>
-                    <AvatarFallback>{record.patient.fullName.split(" ").map(n => n[0]).join("")}</AvatarFallback>
+                    <AvatarFallback>{(record?.patient?.fullName || record?.patient?.full_name || 'Patient').split(" ").map(n => n[0]).join("")}</AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-semibold">{record.patient.fullName}</p>
-                    <p className="text-sm text-gray-500">{record.patient.email}</p>
+                    <p className="font-semibold">{record.patient?.fullName || record.patient?.full_name}</p>
+                    <p className="text-sm text-gray-500">{record.patient?.email}</p>
                   </div>
                 </div>
               </div>
@@ -170,13 +170,13 @@ const PatientPrescriptionView = () => {
               <p className="p-4 bg-emerald-50/50 rounded-md border">{record.diagnosis}</p>
             </div>
 
-            {record.prescription && record.prescription.length > 0 && (
+            {(record.prescription || record.prescription_data) && (record.prescription || record.prescription_data).length > 0 && (
               <div className="space-y-2">
                 <h3 className="font-semibold text-lg flex items-center"><Pill className="h-5 w-5 mr-2 text-teal-600" />Medications</h3>
                 <div className="space-y-3">
-                  {record.prescription.map((med, index) => (
+                  {(record.prescription || record.prescription_data).map((med, index) => (
                     <div key={index} className="p-4 border rounded-lg">
-                      <p className="font-bold text-md">{med.medication}</p>
+                      <p className="font-bold text-md">{med.medication || med.medicineName || med.medicine_name}</p>
                       <p className="text-sm text-gray-600"><span className="font-medium">Dosage:</span> {med.dosage}</p>
                       <p className="text-sm text-gray-600"><span className="font-medium">Frequency:</span> {med.frequency || 'N/A'}</p>
                       <p className="text-sm text-gray-600"><span className="font-medium">Instructions:</span> {med.instructions}</p>
@@ -193,14 +193,14 @@ const PatientPrescriptionView = () => {
               </div>
             )}
 
-            {record.followUpRequired && (
+            {(record.followUpRequired || record.follow_up_required) && (
               <div className="space-y-2 p-4 border-l-4 border-blue-500 bg-blue-50 rounded-md">
                 <h3 className="font-semibold text-lg text-blue-800 flex items-center">
                   <Calendar className="h-5 w-5 mr-2" /> Follow-up Required
                 </h3>
-                <p className="text-blue-700"><span className="font-medium">Date:</span> {new Date(record.followUpDate).toLocaleDateString()}</p>
-                {record.followUpNotes && (
-                  <p className="text-blue-700"><span className="font-medium">Notes:</span> {record.followUpNotes}</p>
+                <p className="text-blue-700"><span className="font-medium">Date:</span> {new Date(record.followUpDate || record.follow_up_date).toLocaleDateString()}</p>
+                {(record.followUpNotes || record.follow_up_notes) && (
+                  <p className="text-blue-700"><span className="font-medium">Notes:</span> {record.followUpNotes || record.follow_up_notes}</p>
                 )}
               </div>
             )}

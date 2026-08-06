@@ -34,7 +34,7 @@ export default function FindDoctorsPage() {
       if (!token) return;
       
       try {
-        const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setPatient(response.data);
@@ -59,7 +59,7 @@ export default function FindDoctorsPage() {
           params.append('specialty', selectedSpecialty);
         }
         
-        const response = await axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/doctors?${params.toString()}`);
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/doctors?${params.toString()}`);
         setDoctors(response.data);
       } catch (err) {
         setError('Failed to fetch doctors. Please try again later.');
@@ -116,7 +116,7 @@ const StarRating = ({ rating }) => {
                   <Avatar className="cursor-pointer w-8 h-8 sm:w-10 sm:h-10">
                     <AvatarImage src="/patient-consultation.png" alt={patient?.fullName || "Patient"} />
                     <AvatarFallback className="bg-teal-100 text-teal-800">
-                      {patient?.fullName ? patient.fullName.split(" ").map((n) => n[0]).join("") : <User className="h-4 w-4" />}
+                      {patient?.fullName ? (patient?.fullName || patient?.full_name || 'Patient').split(" ").map((n) => n[0]).join("") : <User className="h-4 w-4" />}
                     </AvatarFallback>
                   </Avatar>
                 </DropdownMenuTrigger>
@@ -177,7 +177,7 @@ const StarRating = ({ rating }) => {
           <div className="space-y-3 sm:space-y-4 lg:space-y-6">
             {doctors.length > 0 ? (
               doctors.map((doctor) => (
-                <Card key={doctor._id} className="bg-white border-gray-200 hover:shadow-lg transition-shadow">
+                <Card key={(doctor?.id || doctor?._id)} className="bg-white border-gray-200 hover:shadow-lg transition-shadow">
                   <CardContent className="p-3 sm:p-4 lg:p-6">
                     <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 lg:gap-6">
                       <Avatar className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 mx-auto sm:mx-0">
@@ -187,7 +187,7 @@ const StarRating = ({ rating }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-col gap-2 sm:gap-3 mb-3 sm:mb-4">
                           <div className="text-center sm:text-left">
-                            <h3 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 mb-1 truncate">{doctor.fullName}</h3>
+                            <h3 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 mb-1 truncate">{doctor?.fullName || doctor?.full_name || 'N/A'}</h3>
                             <Badge className="bg-teal-100 text-teal-800 text-xs mb-2">{doctor.specialization}</Badge>
                             <p className="text-gray-600 text-xs sm:text-sm lg:text-base mt-2 line-clamp-2">{doctor.bio}</p>
                           </div>
@@ -204,13 +204,13 @@ const StarRating = ({ rating }) => {
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 justify-center w-full sm:w-auto sm:min-w-[140px] lg:min-w-[180px]">
-                        <Link to={`/patient/book/${doctor._id}`} className="w-full">
+                        <Link to={`/patient/book/${(doctor?.id || doctor?._id)}`} className="w-full">
                           <Button className="w-full bg-teal-600 text-white hover:bg-teal-700 h-9 text-xs sm:text-sm">Book Appointment</Button>
                         </Link>
-                        <Link to={`/doctor/${doctor._id}`} className="w-full">
+                        <Link to={`/doctor/${(doctor?.id || doctor?._id)}`} className="w-full">
                           <Button variant="outline" className="w-full h-9 text-xs sm:text-sm">View Profile</Button>
                         </Link>
-                        <Link to={`/doctor/${doctor._id}/reviews`} className="w-full">
+                        <Link to={`/doctor/${(doctor?.id || doctor?._id)}/reviews`} className="w-full">
                           <Button variant="outline" className="w-full h-9 text-xs sm:text-sm">View Reviews</Button>
                         </Link>
                       </div>

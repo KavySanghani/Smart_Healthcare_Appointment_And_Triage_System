@@ -29,8 +29,8 @@ export default function DoctorEarningsPage() {
                 const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
                 const [earningsRes, profileRes] = await Promise.all([
                     // --- UPDATE THIS URL ---
-                    axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/doctors/earnings/data', authHeaders), // Use the new route
-                    axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', authHeaders)
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/doctors/earnings/data`, authHeaders), // Use the new route
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, authHeaders)
                 ]);
                 setEarningsData(earningsRes.data);
                 setDoctor(profileRes.data);
@@ -61,7 +61,7 @@ export default function DoctorEarningsPage() {
         }
 
         try {
-            const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/doctors/earnings/download-report', {
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/doctors/earnings/download-report`, {
                 headers: { Authorization: `Bearer ${token}` },
                 responseType: 'blob', // Important: Tell axios to expect binary data (the file)
             });
@@ -131,9 +131,9 @@ export default function DoctorEarningsPage() {
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10 cursor-pointer hover:opacity-80 transition-opacity">
-                                        <AvatarImage src="/female-doctor.jpg" alt={doctor.fullName} />
+                                        <AvatarImage src="/female-doctor.jpg" alt={(doctor?.fullName || doctor?.full_name || 'N/A')} />
                                         <AvatarFallback className="bg-teal-100 text-teal-800 text-xs sm:text-sm">
-                                            {doctor.fullName.split(" ").map((n) => n[0]).join("")}
+                                            {(doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map((n) => n[0]).join("")}
                                         </AvatarFallback>
                                     </Avatar>
                                 </DropdownMenuTrigger>
@@ -257,7 +257,7 @@ export default function DoctorEarningsPage() {
                                                 <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                                                     <AvatarImage src="/placeholder.svg" />
                                                     <AvatarFallback className="text-xs sm:text-sm">
-                                                        {tx.patientName.split(" ").map((n) => n[0]).join("")}
+                                                        {(tx?.patientName || 'Patient').split(" ").map((n) => n[0]).join("")}
                                                     </AvatarFallback>
                                                 </Avatar>
                                                 <div>

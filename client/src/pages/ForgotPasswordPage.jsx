@@ -29,7 +29,7 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
-      const response = await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/forgot-password', { email, userType });
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/forgot-password`, { email, userType });
       setSuccess(response.data.message);
     } catch (error) {
       const message = error.response?.data?.message || "An error occurred.";

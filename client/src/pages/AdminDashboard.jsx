@@ -75,10 +75,10 @@ export default function AdminDashboard() {
         return;
       }
       try {
-        const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (response.data.userType !== 'admin') {
+        if (response.data.userType !== 'admin' && response.data.user_type !== 'admin') {
             setError("Access Denied. You are not an admin.");
             localStorage.removeItem('token');
             navigate('/login');
@@ -120,7 +120,7 @@ export default function AdminDashboard() {
         if (patientDateFromFilter) params.append('patientDateFrom', patientDateFromFilter);
         if (patientDateToFilter) params.append('patientDateTo', patientDateToFilter);
 
-        const response = await axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/users?${params.toString()}`, {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/admin/users?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
 
@@ -162,11 +162,11 @@ export default function AdminDashboard() {
     setVerifyingId(doctorId);
     try {
       await axios.put(
-        `https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/verify-doctor/${doctorId}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/verify-doctor/${doctorId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setDoctors(docs => docs.map(doc => doc._id === doctorId ? { ...doc, isVerified: true } : doc));
+      setDoctors(docs => docs.map(doc => (doc?.id || doc?._id) === doctorId ? { ...doc, isVerified: true } : doc));
     } catch (err) {
       alert(`Error: ${err.response?.data?.message || "Failed to verify doctor."}`);
     } finally {
@@ -181,10 +181,10 @@ export default function AdminDashboard() {
     setRejectingId(doctorId);
     try {
       await axios.delete(
-        `https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/reject-doctor/${doctorId}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/reject-doctor/${doctorId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setDoctors(docs => docs.filter(doc => doc._id !== doctorId));
+      setDoctors(docs => docs.filter(doc => (doc?.id || doc?._id) !== doctorId));
     } catch (err) {
       alert(`Error: ${err.response?.data?.message || "Failed to reject doctor."}`);
     } finally {
@@ -199,11 +199,11 @@ export default function AdminDashboard() {
     setSuspendingId(doctorId);
     try {
       await axios.put(
-        `https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/suspend-doctor/${doctorId}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/suspend-doctor/${doctorId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setDoctors(docs => docs.map(doc => doc._id === doctorId ? { ...doc, isVerified: false } : doc));
+      setDoctors(docs => docs.map(doc => (doc?.id || doc?._id) === doctorId ? { ...doc, isVerified: false } : doc));
     } catch (err) {
       alert(`Error: ${err.response?.data?.message || "Failed to suspend doctor."}`);
     } finally {
@@ -219,11 +219,11 @@ export default function AdminDashboard() {
     setVerifyingPatientId(patientId);
     try {
       await axios.put(
-        `https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/verify-patient/${patientId}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/verify-patient/${patientId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setPatients(pats => pats.map(p => p._id === patientId ? { ...p, isVerified: true } : p));
+      setPatients(pats => pats.map(p => (p?.id || p?._id) === patientId ? { ...p, isVerified: true } : p));
     } catch (err) {
       alert(`Error: ${err.response?.data?.message || "Failed to verify patient."}`);
     } finally {
@@ -238,11 +238,11 @@ export default function AdminDashboard() {
     setSuspendingPatientId(patientId);
     try {
       await axios.put(
-        `https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/suspend-patient/${patientId}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/suspend-patient/${patientId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setPatients(pats => pats.map(p => p._id === patientId ? { ...p, isVerified: false } : p));
+      setPatients(pats => pats.map(p => (p?.id || p?._id) === patientId ? { ...p, isVerified: false } : p));
     } catch (err) {
       alert(`Error: ${err.response?.data?.message || "Failed to suspend patient."}`);
     } finally {
@@ -303,13 +303,13 @@ export default function AdminDashboard() {
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-cyan-200 flex items-center justify-center text-cyan-800 font-semibold text-xs cursor-pointer hover:bg-cyan-300 transition-colors"
               >
-                {adminProfile ? adminProfile.fullName.substring(0, 2).toUpperCase() : 'AD'}
+                {adminProfile ? ((adminProfile?.fullName || adminProfile?.full_name) || adminProfile?.full_name || 'Admin').substring(0, 2).toUpperCase() : 'AD'}
               </div>
               {isProfileOpen && (
                 <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
                   <div className="py-1">
                     <div className="px-4 py-2 text-sm text-gray-700 border-b">
-                      <p className="font-medium">{adminProfile?.fullName || "Admin"}</p>
+                      <p className="font-medium">{(adminProfile?.fullName || adminProfile?.full_name) || "Admin"}</p>
                       <p className="text-xs text-gray-500 truncate">{adminProfile?.email || ""}</p>
                     </div>
                     <button
@@ -412,37 +412,37 @@ export default function AdminDashboard() {
                     )}
                     {!loading && doctors.length > 0 ? (
                       doctors.map((doctor) => (
-                        <TableRow key={doctor._id}>
+                        <TableRow key={(doctor?.id || doctor?._id)}>
                           <TableCell className="font-medium text-xs sm:text-sm">
                             <button 
-                              onClick={() => navigate(`/admin/doctor-profile/${doctor._id}`)} 
+                              onClick={() => navigate(`/admin/doctor-profile/${(doctor?.id || doctor?._id)}`)} 
                               className="text-cyan-700 hover:text-cyan-900 hover:underline focus:outline-none text-left"
                             >
-                              {doctor.fullName}
+                              {(doctor?.fullName || doctor?.full_name || 'N/A')}
                             </button>
                           </TableCell>
                           <TableCell className="text-xs sm:text-sm">{doctor.email}</TableCell>
                           <TableCell className="text-xs sm:text-sm"><Badge variant="outline" className="text-xs">{doctor.specialization}</Badge></TableCell>
                           <TableCell className="text-xs sm:text-sm">{doctor.licenseNumber}</TableCell>
                           <TableCell className="text-center">
-                            {doctor.isVerified ? (
+                            {(doctor?.isVerified || doctor?.is_verified) ? (
                               <Badge className="bg-green-100 text-green-800 text-xs"><ShieldCheck className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />Verified</Badge>
                             ) : (
                               <Badge variant="destructive" className="bg-yellow-100 text-yellow-800 text-xs"><ShieldAlert className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />Pending</Badge>
                             )}
                           </TableCell>
                           <TableCell className="text-center">
-                            {doctor.isVerified ? (
-                              <Button variant="destructive" size="sm" className="bg-red-600 hover:bg-red-700 h-8 text-xs" onClick={() => handleSuspend(doctor._id)} disabled={suspendingId === doctor._id}>
-                                {suspendingId === doctor._id ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Suspend'}
+                            {(doctor?.isVerified || doctor?.is_verified) ? (
+                              <Button variant="destructive" size="sm" className="bg-red-600 hover:bg-red-700 h-8 text-xs" onClick={() => handleSuspend((doctor?.id || doctor?._id))} disabled={suspendingId === (doctor?.id || doctor?._id)}>
+                                {suspendingId === (doctor?.id || doctor?._id) ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Suspend'}
                               </Button>
                             ) : (
                               <div className="flex justify-center gap-1 sm:gap-2">
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700 h-8 text-xs" onClick={() => handleVerify(doctor._id)} disabled={verifyingId === doctor._id || rejectingId === doctor._id}>
-                                  {verifyingId === doctor._id ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Verify'}
+                                <Button size="sm" className="bg-green-600 hover:bg-green-700 h-8 text-xs" onClick={() => handleVerify((doctor?.id || doctor?._id))} disabled={verifyingId === (doctor?.id || doctor?._id) || rejectingId === (doctor?.id || doctor?._id)}>
+                                  {verifyingId === (doctor?.id || doctor?._id) ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Verify'}
                                 </Button>
-                                <Button variant="destructive" size="sm" className="bg-red-600 hover:bg-red-700 h-8 text-xs" onClick={() => handleReject(doctor._id)} disabled={rejectingId === doctor._id || verifyingId === doctor._id}>
-                                  {rejectingId === doctor._id ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Reject'}
+                                <Button variant="destructive" size="sm" className="bg-red-600 hover:bg-red-700 h-8 text-xs" onClick={() => handleReject((doctor?.id || doctor?._id))} disabled={rejectingId === (doctor?.id || doctor?._id) || verifyingId === (doctor?.id || doctor?._id)}>
+                                  {rejectingId === (doctor?.id || doctor?._id) ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Reject'}
                                 </Button>
                               </div>
                             )}
@@ -515,14 +515,14 @@ export default function AdminDashboard() {
                     )}
                     {!loading && patients.length > 0 ? (
                       patients.map((patient) => (
-                        <TableRow key={patient._id}>
-                          <TableCell className="font-medium text-xs sm:text-sm">{patient.fullName}</TableCell>
+                        <TableRow key={(patient?.id || patient?._id)}>
+                          <TableCell className="font-medium text-xs sm:text-sm">{patient?.fullName || patient?.full_name || 'N/A'}</TableCell>
                           <TableCell className="text-xs sm:text-sm">{patient.email}</TableCell>
                           <TableCell className="text-xs sm:text-sm">{new Date(patient.createdAt).toLocaleDateString()}</TableCell>
                           
                           
                           <TableCell className="text-center">
-                               {patient.isVerified !== false ? (
+                               {(patient?.isVerified ?? patient?.is_verified) !== false ? (
                                   <Badge className="bg-green-100 text-green-800 text-xs"><ShieldCheck className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />Active</Badge>
                                ) : (
                                   <Badge variant="destructive" className="text-xs"><ShieldAlert className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />Suspended</Badge>
@@ -531,24 +531,24 @@ export default function AdminDashboard() {
 
                         
                           <TableCell className="text-center">
-                              {patient.isVerified !== false ? (
+                              {(patient?.isVerified ?? patient?.is_verified) !== false ? (
                                   <Button 
                                       variant="destructive" 
                                       size="sm" 
                                       className="bg-red-600 hover:bg-red-700 h-8 text-xs"
-                                      onClick={() => handleSuspendPatient(patient._id)}
-                                      disabled={suspendingPatientId === patient._id}
+                                      onClick={() => handleSuspendPatient((patient?.id || patient?._id))}
+                                      disabled={suspendingPatientId === (patient?.id || patient?._id)}
                                   >
-                                      {suspendingPatientId === patient._id ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Suspend'}
+                                      {suspendingPatientId === (patient?.id || patient?._id) ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Suspend'}
                                   </Button>
                               ) : (
                                   <Button 
                                       size="sm" 
                                       className="bg-green-600 hover:bg-green-700 h-8 text-xs"
-                                      onClick={() => handleVerifyPatient(patient._id)}
-                                      disabled={verifyingPatientId === patient._id}
+                                      onClick={() => handleVerifyPatient((patient?.id || patient?._id))}
+                                      disabled={verifyingPatientId === (patient?.id || patient?._id)}
                                   >
-                                      {verifyingPatientId === patient._id ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Verify'}
+                                      {verifyingPatientId === (patient?.id || patient?._id) ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : 'Verify'}
                                   </Button>
                               )}
                           </TableCell>
@@ -578,7 +578,7 @@ export default function AdminDashboard() {
                   <User className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 flex-shrink-0" />
                   <div>
                     <p className="text-xs sm:text-sm text-gray-500">Your Name</p>
-                    <p className="font-medium text-sm sm:text-base text-gray-900">{adminProfile?.fullName || 'Loading...'}</p>
+                    <p className="font-medium text-sm sm:text-base text-gray-900">{(adminProfile?.fullName || adminProfile?.full_name) || 'Loading...'}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">

@@ -33,8 +33,8 @@ export default function DoctorReviewsPage() {
       try {
         // Fetch doctor details and reviews in parallel
         const [doctorRes, reviewsRes] = await Promise.all([
-          axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/doctors/${doctorId}`),
-          axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/reviews/doctor/${doctorId}`)
+          axios.get(`${import.meta.env.VITE_API_URL}/api/doctors/${doctorId}`),
+          axios.get(`${import.meta.env.VITE_API_URL}/api/reviews/doctor/${doctorId}`)
         ]);
         setDoctor(doctorRes.data);
         setReviews(reviewsRes.data);
@@ -57,11 +57,11 @@ export default function DoctorReviewsPage() {
           <Card className="bg-white shadow-lg mb-8">
             <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center sm:space-x-4 p-4 sm:p-6">
               <Avatar className="w-16 h-16 sm:w-20 sm:h-20 mb-3 sm:mb-0">
-                <AvatarImage src="/female-doctor.jpg" alt={doctor.fullName} />
-                <AvatarFallback>{doctor.fullName.split(" ").map(n => n[0]).join("")}</AvatarFallback>
+                <AvatarImage src="/female-doctor.jpg" alt={(doctor?.fullName || doctor?.full_name || 'N/A')} />
+                <AvatarFallback>{(doctor?.fullName || doctor?.full_name || 'Doctor').split(" ").map(n => n[0]).join("")}</AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <CardTitle className="text-xl sm:text-2xl">{doctor.fullName}</CardTitle>
+                <CardTitle className="text-xl sm:text-2xl">{doctor?.fullName || doctor?.full_name || 'N/A'}</CardTitle>
                 <CardDescription className="text-sm sm:text-md">{doctor.specialization}</CardDescription>
                 <div className="flex items-center space-x-2 mt-2">
                   <StarRating rating={doctor.averageRating} />
@@ -82,13 +82,13 @@ export default function DoctorReviewsPage() {
         <Card className="bg-white shadow-lg">
           <CardContent className="p-6 space-y-6">
             {reviews.length > 0 ? reviews.map(review => (
-              <div key={review._id} className="border-b pb-4 last:border-b-0">
+              <div key={(review?.id || review?._id)} className="border-b pb-4 last:border-b-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-3">
                     <Avatar className="h-10 w-10">
                       <AvatarFallback>
                       {review.appointment?.patientNameForVisit 
-                        ? review.appointment.patientNameForVisit.split(" ").map(n => n[0]).join("") 
+                        ? (review?.appointment?.patientNameForVisit || 'Patient').split(" ").map(n => n[0]).join("")
                         : "P"} 
                     </AvatarFallback>
                     </Avatar>

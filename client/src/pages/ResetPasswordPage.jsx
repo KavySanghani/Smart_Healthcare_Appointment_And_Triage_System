@@ -41,7 +41,7 @@ export default function ResetPasswordPage() {
 
     try {
       const response = await axios.put(
-        `https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/reset-password/${token}`, 
+        `${import.meta.env.VITE_API_URL}/api/auth/reset-password/${token}`, 
         { password, confirmPassword }
       );
       setSuccess(response.data.message);

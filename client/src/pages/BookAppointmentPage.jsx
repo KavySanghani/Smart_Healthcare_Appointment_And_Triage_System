@@ -87,26 +87,27 @@ export default function BookAppointmentPage() {
         const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
         
         const [doctorResponse, profileResponse] = await Promise.all([
-          axios.get(`https://smart-healthcare-appointment-and-triage.onrender.com/api/doctors/${doctorId}`),
-          axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', authHeaders),
+          axios.get(`${import.meta.env.VITE_API_URL}/api/doctors/${doctorId}`),
+          axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, authHeaders),
         ]);
 
         setDoctor(doctorResponse.data);
 
         setAppointmentDetails(prev => ({ 
           ...prev, 
-          patientNameForVisit: profileResponse.data.fullName,
-          email: profileResponse.data.email,
+          patientNameForVisit: profileResponse.data.fullName || profileResponse.data.full_name || "",
+          email: profileResponse.data.email || "",
         }));
         setIsLoading(false); 
         
         const slotsResponse = await axios.get(
-          `https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/available-slots/${doctorId}`,
+          `${import.meta.env.VITE_API_URL}/api/appointments/available-slots/${doctorId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
         const now = new Date();
-        const futureSlots = slotsResponse.data.filter(slot => {
+        const futureSlots = (slotsResponse.data || []).filter(slot => {
+          if (!slot?.date || !slot?.time) return false;
           const slotDateTime = new Date(`${slot.date} ${slot.time}`);
           return slotDateTime > now;
         });
@@ -200,7 +201,7 @@ export default function BookAppointmentPage() {
     delete bookingData.familyHistoryOther;
     
     try {
-      await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/book', bookingData, {
+      await axios.post(`${import.meta.env.VITE_API_URL}/api/appointments/book`, bookingData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert("Appointment booked successfully!");
@@ -230,9 +231,10 @@ export default function BookAppointmentPage() {
     setIsPaymentProcessing(true);
 
     try {
-      const orderResponse = await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/create-payment-order', {
+      const fee = Number(doctor?.consultationFee || doctor?.consultation_fee || 0);
+      const orderResponse = await axios.post(`${import.meta.env.VITE_API_URL}/api/appointments/create-payment-order`, {
         doctorId,
-        amount: doctor.consultationFee * 100,
+        amount: fee,
         currency: 'INR'
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -245,11 +247,11 @@ export default function BookAppointmentPage() {
         amount: amount,
         currency: currency,
         name: 'IntelliConsult',
-        description: `Consultation with ${doctor.fullName}`,
+        description: `Consultation with ${(doctor?.fullName || doctor?.full_name || 'N/A')}`,
         order_id: orderId,
         handler: async function (response) {
           try {
-            const verifyResponse = await axios.post('https://smart-healthcare-appointment-and-triage.onrender.com/api/appointments/verify-payment', {
+            const verifyResponse = await axios.post(`${import.meta.env.VITE_API_URL}/api/appointments/verify-payment`, {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
@@ -368,7 +370,7 @@ export default function BookAppointmentPage() {
                 <AvatarFallback>Dr</AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <h2 className="text-xl font-bold text-gray-900">{doctor.fullName}</h2>
+                <h2 className="text-xl font-bold text-gray-900">{doctor?.fullName || doctor?.full_name || 'N/A'}</h2>
                 <Badge className="bg-teal-100 text-teal-800 mb-2 mt-1 hover:bg-teal-200">{doctor.specialization}</Badge>
                 <p className="text-sm text-gray-500">Consultation Fee: ₹{doctor.consultationFee}</p>
               </div>
@@ -467,7 +469,7 @@ export default function BookAppointmentPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="patientNameForVisit">Patient's Full Name *</Label>
-                      <Input id="patientNameForVisit" value={appointmentDetails.patientNameForVisit} onChange={(e) => handleDetailsChange("patientNameForVisit", e.target.value)} className="bg-white" />
+                      <Input id="patientNameForVisit" value={appointmentDetails.patientNameForVisit || ""} onChange={(e) => handleDetailsChange("patientNameForVisit", e.target.value)} className="bg-white" />
                     </div>
 
                     <div className="space-y-2">
@@ -475,7 +477,7 @@ export default function BookAppointmentPage() {
                       <Input 
                         id="phoneNumber" 
                         type="tel" 
-                        value={appointmentDetails.phoneNumber} 
+                        value={appointmentDetails.phoneNumber || ""} 
                         onChange={(e) => handleDetailsChange("phoneNumber", e.target.value)} 
                         className="bg-white"
                         maxLength={10}
@@ -485,12 +487,12 @@ export default function BookAppointmentPage() {
 
                     <div className="space-y-2">
                       <Label htmlFor="email">Email Address *</Label>
-                      <Input id="email" type="email" value={appointmentDetails.email} onChange={(e) => handleDetailsChange("email", e.target.value)} className="bg-white" />
+                      <Input id="email" type="email" value={appointmentDetails.email || ""} onChange={(e) => handleDetailsChange("email", e.target.value)} className="bg-white" />
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="birthDate">Birth Date *</Label>
-                      <Input id="birthDate" type="date" value={appointmentDetails.birthDate} onChange={(e) => handleDetailsChange("birthDate", e.target.value)} className="bg-white" />
+                      <Input id="birthDate" type="date" value={appointmentDetails.birthDate || ""} onChange={(e) => handleDetailsChange("birthDate", e.target.value)} className="bg-white" />
                       {formErrors.birthDate && <p className="text-xs text-red-600">{formErrors.birthDate}</p>}
                     </div>
 
@@ -682,7 +684,7 @@ export default function BookAppointmentPage() {
                 <div className="bg-emerald-50/50 p-5 rounded-lg space-y-4 border border-emerald-100">
                   <h3 className="font-semibold text-lg text-teal-900 border-b border-emerald-200 pb-2">Booking Summary</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm">
-                     <div className="flex flex-col"><span className="text-gray-500">Doctor</span><span className="font-medium text-gray-900">{doctor.fullName}</span></div>
+                     <div className="flex flex-col"><span className="text-gray-500">Doctor</span><span className="font-medium text-gray-900">{doctor?.fullName || doctor?.full_name || 'N/A'}</span></div>
                      <div className="flex flex-col"><span className="text-gray-500">Date & Time</span><span className="font-medium text-gray-900">{new Date(selectedSlot.date).toDateString()} at {selectedSlot.time}</span></div>
                      <div className="flex flex-col"><span className="text-gray-500">Patient</span><span className="font-medium text-gray-900">{appointmentDetails.patientNameForVisit}</span></div>
                      <div className="flex flex-col"><span className="text-gray-500">Primary Reason</span><span className="font-medium text-gray-900">{appointmentDetails.primaryReason}</span></div>

@@ -51,7 +51,7 @@ export default function LandingPage() {
           const decoded = JSON.parse(jsonPayload);
           
           // Verify token is still valid by making API call
-          const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+          const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           
@@ -157,7 +157,7 @@ export default function LandingPage() {
             </a>
             {isLoggedIn ? (
               <>
-                <span className="text-sm lg:text-base text-gray-600">Welcome, {user?.fullName?.split(' ')[0] || 'User'}</span>
+                <span className="text-sm lg:text-base text-gray-600">Welcome, {(user?.fullName || user?.full_name || 'User')?.split(' ')[0] || 'User'}</span>
                 <button 
                   onClick={handleLogout}
                   className="text-sm lg:text-base text-gray-600 hover:text-gray-900 transition-colors flex items-center space-x-1"

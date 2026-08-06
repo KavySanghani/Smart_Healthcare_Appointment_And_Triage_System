@@ -40,7 +40,7 @@ export default function CompleteProfilePage() {
             return;
         }
         try {
-            const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUserInfo({ fullName: response.data.fullName, email: response.data.email });
@@ -85,7 +85,7 @@ export default function CompleteProfilePage() {
 
 
     try {
-      const response = await axios.put('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/complete-profile', profileData, {
+      const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/complete-profile`, profileData, {
         headers: { Authorization: `Bearer ${token}` }
       });
 

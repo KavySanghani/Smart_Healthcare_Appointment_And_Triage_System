@@ -47,10 +47,10 @@ export default function AdminAppointmentsPage() {
         return;
       }
       try {
-        const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/users/profile', {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/users/profile`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (response.data.userType !== 'admin') {
+        if (response.data.userType !== 'admin' && response.data.user_type !== 'admin') {
           setError("Access Denied. You are not an admin.");
           localStorage.removeItem('token');
           navigate('/login');
@@ -76,7 +76,7 @@ export default function AdminAppointmentsPage() {
       }
 
       try {
-        const response = await axios.get('https://smart-healthcare-appointment-and-triage.onrender.com/api/admin/appointments', {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/admin/appointments`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
@@ -137,7 +137,7 @@ export default function AdminAppointmentsPage() {
     }
 
     return appointments.map((appt) => (
-      <TableRow key={appt._id}>
+      <TableRow key={(appt?.id || appt?._id)}>
         <TableCell className="font-medium">
           {appt.patientNameForVisit || 'N/A'}
         </TableCell>
@@ -205,13 +205,13 @@ export default function AdminAppointmentsPage() {
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-cyan-200 flex items-center justify-center text-cyan-800 font-semibold text-xs cursor-pointer hover:bg-cyan-300 transition-colors"
               >
-                {adminProfile ? adminProfile.fullName.substring(0, 2).toUpperCase() : 'AD'}
+                {adminProfile ? ((adminProfile?.fullName || adminProfile?.full_name) || adminProfile?.full_name || 'Admin').substring(0, 2).toUpperCase() : 'AD'}
               </div>
               {isProfileOpen && (
                 <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
                   <div className="py-1">
                     <div className="px-4 py-2 text-sm text-gray-700 border-b">
-                      <p className="font-medium">{adminProfile?.fullName || "Admin"}</p>
+                      <p className="font-medium">{(adminProfile?.fullName || adminProfile?.full_name) || "Admin"}</p>
                       <p className="text-xs text-gray-500 truncate">{adminProfile?.email || ""}</p>
                     </div>
                     <button
@@ -361,7 +361,7 @@ export default function AdminAppointmentsPage() {
                   <User className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 flex-shrink-0" />
                   <div>
                     <p className="text-xs sm:text-sm text-gray-500">Your Name</p>
-                    <p className="font-medium text-sm sm:text-base text-gray-900">{adminProfile?.fullName || 'Loading...'}</p>
+                    <p className="font-medium text-sm sm:text-base text-gray-900">{(adminProfile?.fullName || adminProfile?.full_name) || 'Loading...'}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
