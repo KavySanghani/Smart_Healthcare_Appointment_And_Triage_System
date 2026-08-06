@@ -130,8 +130,8 @@ You can access IntelliConsult here:
 ### Backend
 - **Node.js** - JavaScript runtime
 - **Express.js** - Web application framework
-- **MongoDB** - NoSQL database
-- **Mongoose** - MongoDB object modeling
+- **PostgreSQL** - Relational database
+- **Supabase** - Backend-as-a-Service and PostgreSQL hosting
 - **JWT** - Authentication tokens
 - **Passport.js** - Authentication middleware
 - **Bcrypt** - Password hashing
@@ -152,7 +152,7 @@ Before you begin, ensure you have the following installed:
 
 - **Node.js** (v18 or higher)
 - **npm** (v9 or higher) or **yarn**
-- **MongoDB** (v6 or higher) - Local installation or MongoDB Atlas account
+- **Supabase** account or local Supabase CLI setup
 - **Git** for version control
 
 ---
@@ -189,10 +189,9 @@ Create a `.env` file in the root directory with the following variables:
 PORT=5000
 NODE_ENV=development
 
-# MongoDB
-MONGODB_URI=mongodb://localhost:27017/intelliconsult
-# OR for MongoDB Atlas:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/intelliconsult
+# Supabase
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # JWT Secret
 JWT_SECRET=your_jwt_secret_key_here
@@ -225,18 +224,13 @@ CLIENT_URL=http://localhost:5173
 
 ## Configuration
 
-### MongoDB Setup
+### Supabase Setup
 
-**Option 1: Local MongoDB**
-1. Install MongoDB locally
-2. Start MongoDB service
-3. Use `mongodb://localhost:27017/intelliconsult` in your `.env`
-
-**Option 2: MongoDB Atlas**
-1. Create a free account at [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
-2. Create a new cluster
-3. Get your connection string
-4. Update `MONGODB_URI` in `.env`
+1. Create a free account at [Supabase](https://supabase.com/)
+2. Create a new project and database
+3. Execute the `schema.sql` file provided in the repository to initialize the tables
+4. Get your Project URL and anon key from Project Settings > API
+5. Update `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`
 
 ### Google OAuth Setup
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
@@ -258,7 +252,7 @@ CLIENT_URL=http://localhost:5173
 
 ### Development Mode
 
-1. **Start the MongoDB server** (if using local MongoDB)
+1. **Ensure Supabase is configured** and the `schema.sql` has been executed.
 
 2. **Start the backend server:**
    ```bash
@@ -315,11 +309,6 @@ Smart_Healthcare_Appointment_And_Triage_System/
 │   ├── middleware/         # Express middleware
 │   │   ├── auth.js         # Authentication middleware
 │   │   └── admin.js        # Admin authorization
-│   ├── models/             # Mongoose data models
-│   │   ├── Patient.js
-│   │   ├── Doctor.js
-│   │   ├── Appointment.js
-│   │   └── ...
 │   ├── routes/             # API route handlers
 │   │   ├── auth.js
 │   │   ├── appointments.js
