@@ -2,83 +2,71 @@ const express = require('express');
 const router = express.Router();
 const Groq = require('groq-sdk');
 const protect = require('../middleware/auth');
-const Appointment = require('../models/Appointment');
+const supabase = require('../config/supabase');
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
 const formatAppointmentData = (appointment) => {
-  // --- 1. FIX SYMPTOMS LOGIC ---
-  // Start with the new list
-  let allSymptoms = appointment.symptomsList ? [...appointment.symptomsList] : [];
+  let allSymptoms = appointment.symptoms_list ? [...appointment.symptoms_list] : [];
   
-  // Add "Other" symptoms if present
-  if (appointment.symptomsOther) {
-    allSymptoms.push(appointment.symptomsOther);
+  if (appointment.symptoms_other) {
+    allSymptoms.push(appointment.symptoms_other);
   }
 
-  // BACKWARD COMPATIBILITY: Check the old 'symptoms' string field
-  // If the list is empty but the old field has data, use it
   if (allSymptoms.length === 0 && appointment.symptoms && typeof appointment.symptoms === 'string') {
     allSymptoms.push(appointment.symptoms);
   }
-  // -----------------------------
+  
+  const severeSymptoms = appointment.severe_symptoms_check || []; 
 
-  // ... (severe symptoms logic from previous fix) ...
-  const severeSymptoms = appointment.severeSymptomsCheck || []; 
-
-  // ... (conditions logic) ...
-  const conditions = appointment.preExistingConditions || [];
-  const conditionsOther = appointment.preExistingConditionsOther || '';
+  const conditions = appointment.pre_existing_conditions || [];
+  const conditionsOther = appointment.pre_existing_conditions_other || '';
   const allConditions = [...conditions];
   if (conditionsOther) allConditions.push(conditionsOther);
 
-  // ... (family history logic) ...
-  const familyHistory = appointment.familyHistory || [];
-  const familyHistoryOther = appointment.familyHistoryOther || '';
+  const familyHistory = appointment.family_history || [];
+  const familyHistoryOther = appointment.family_history_other || '';
   const allFamilyHistory = [...familyHistory];
   if (familyHistoryOther) allFamilyHistory.push(familyHistoryOther);
 
-  // ... (age calculation from previous fix) ...
   let age = 'Not provided';
-  if (appointment.birthDate) {
-     // ... (age logic)
-     const birthDate = new Date(appointment.birthDate);
+  if (appointment.birth_date) {
+     const birthDate = new Date(appointment.birth_date);
      const today = new Date();
      age = today.getFullYear() - birthDate.getFullYear();
-     // ... (rest of age calculation)
   }
 
   return `
 PATIENT CONSULTATION SUMMARY REQUEST:
 
 PATIENT BASIC DETAILS:
-- Name: ${appointment.patientNameForVisit || 'Not provided'}
+- Name: ${appointment.patient_name_for_visit || 'Not provided'}
 - Age: ${age}
 - Sex: ${appointment.sex || 'Not provided'}
 
 CHIEF COMPLAINT:
-${appointment.primaryReason || appointment.reasonForVisit || 'Not specified'}  <-- FIX 2: Check both fields
+${appointment.primary_reason || appointment.reason_for_visit || 'Not specified'}
 
 CURRENT SYMPTOMS:
-${allSymptoms.length > 0 ? allSymptoms.map(s => `- ${s}`).join('\n') : '- None reported'}
+${allSymptoms.length > 0 ? allSymptoms.map(s => '- ' + s).join('\\n') : '- None reported'}
 
 SYMPTOM BEGINNING:
-${appointment.symptomsBegin || 'Not specified'}
+${appointment.symptoms_begin || 'Not specified'}
   
 SEVERE SYMPTOMS :
-${severeSymptoms.length > 0 ? severeSymptoms.map(s => `- ${s}`).join('\n') : '- None reported'}
+${severeSymptoms.length > 0 ? severeSymptoms.map(s => '- ' + s).join('\\n') : '- None reported'}
 
 MEDICAL HISTORY:
 Pre-existing Conditions:
-${allConditions.length > 0 ? allConditions.map(c => `- ${c}`).join('\n') : '- None'}
+${allConditions.length > 0 ? allConditions.map(c => '- ' + c).join('\\n') : '- None'}
 
 Past Surgeries/Hospitalizations:
-${appointment.pastSurgeries || 'None'}
+${appointment.past_surgeries || 'None'}
 
 Family Medical History:
-${allFamilyHistory.length > 0 ? allFamilyHistory.map(h => `- ${h}`).join('\n') : '- None'}
+${allFamilyHistory.length > 0 ? allFamilyHistory.map(h => '- ' + h).join('\\n') : '- None'}
 
 Current Medications:
 ${appointment.medications || 'None'}
@@ -119,29 +107,32 @@ Keep it professional and concise.`;
 
 router.get('/appointment/:appointmentId', protect, async (req, res) => {
   try {
-    const appointment = await Appointment.findById(req.params.appointmentId);
-    
-    if (!appointment) {
+    const appointmentId = req.params.appointmentId;
+    const { data: appointment, error: aptErr } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('id', appointmentId)
+      .maybeSingle();
+      
+    if (!appointment || aptErr) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check if summary already exists
-    if (appointment.doctorSummary) {
+    if (appointment.doctor_summary) {
       return res.json({
         success: true,
-        summary: appointment.doctorSummary,
+        summary: appointment.doctor_summary,
         cached: true
       });
     }
 
-    // Generate new summary
     const formattedData = formatAppointmentData(appointment);
     const summary = await generateAISummary(formattedData);
 
-    // Save to database
-    appointment.doctorSummary = summary;
-    appointment.summaryGeneratedAt = new Date();
-    await appointment.save();
+    await supabase.from('appointments').update({
+        doctor_summary: summary,
+        summary_generated_at: new Date().toISOString()
+    }).eq('id', appointmentId);
 
     res.json({
       success: true,

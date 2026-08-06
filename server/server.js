@@ -1,7 +1,6 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const session = require('express-session');
 const passport = require('passport');
 const app = express();
@@ -11,7 +10,7 @@ require('./config/passport')(passport);
 
 const _dirname= path.resolve();
 app.use(cors({
-  origin: 'https://smart-healthcare-appointment-and-triage.onrender.com',
+  origin: 'http://localhost:5173',
   credentials: true
 }));
 app.use(express.json());
@@ -22,9 +21,9 @@ app.use(session({
 }));
 app.use(passport.initialize());
 app.use(passport.session());
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log(' MongoDB connected successfully.'))
-  .catch(err => console.error(' MongoDB connection error:', err));
+
+// Prisma PostgreSQL connection is initialized in the individual route files
+
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const appointmentRoutes = require('./routes/appointments');
@@ -51,4 +50,4 @@ app.get(/^\/(?!api).*/, (_, res) => {
   res.sendFile(path.resolve(_dirname, "client","dist","index.html"));
 })
 
-app.listen(PORT, () => console.log(` Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

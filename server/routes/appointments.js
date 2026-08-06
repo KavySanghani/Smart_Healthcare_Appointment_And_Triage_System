@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Appointment = require('../models/Appointment');
-const Doctor = require('../models/Doctor');
+const supabase = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 const sendEmail = require('../utils/email_utils');
 
@@ -18,23 +17,29 @@ const razorpay = new Razorpay({
 router.get('/available-slots/:doctorId', authMiddleware, async (req, res) => {
   try {
     const { doctorId } = req.params;
-    const doctor = await Doctor.findById(doctorId);
-    if (!doctor) {
+    
+    const { data: doctor, error: docErr } = await supabase.from('doctors').select('*').eq('id', doctorId).maybeSingle();
+    
+    if (!doctor || docErr) {
       return res.status(404).json({ message: 'Doctor not found.' });
     }
 
-    const bookedAppointments = await Appointment.find({
-      doctor: doctorId,
-      status: 'upcoming',
-    });
+    const { data: bookedAppointments, error: aptErr } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('doctor_id', doctorId)
+        .eq('status', 'upcoming');
+
+    if (aptErr) throw aptErr;
 
     const bookedSlots = new Set();
-    bookedAppointments.forEach(apt => {
+    (bookedAppointments || []).forEach(apt => {
       const dateTimeString = `${new Date(apt.date).toDateString()}_${apt.time}`;
       bookedSlots.add(dateTimeString);
     });
 
-    const blockedTimes = doctor.blockedTimes || [];
+    const blockedTimes = doctor?.blockedTimes || doctor?.blocked_times || [];
+    const workingHours = doctor?.workingHours || doctor?.working_hours || {};
 
     const availableSlots = [];
     const slotDuration = 60; 
@@ -46,9 +51,9 @@ router.get('/available-slots/:doctorId', authMiddleware, async (req, res) => {
       date.setDate(today.getDate() + i);
       
       const dayKey = daysOfWeek[date.getDay()];
-      const daySchedule = doctor.workingHours.get(dayKey);
+      const daySchedule = workingHours[dayKey];
 
-      if (daySchedule && daySchedule.enabled) {
+      if (daySchedule?.enabled && daySchedule?.start && daySchedule?.end) {
         const [startHour, startMin] = daySchedule.start.split(':').map(Number);
         const [endHour, endMin] = daySchedule.end.split(':').map(Number);
 
@@ -66,10 +71,12 @@ router.get('/available-slots/:doctorId', authMiddleware, async (req, res) => {
           const dateTimeString = `${dateString}_${timeString}`;
           let isBlocked = false;
           for (const block of blockedTimes) {
-            const blockDate = new Date(block.date).toDateString();
+            const blockDate = block?.date ? new Date(block.date).toDateString() : null;
             if (blockDate === dateString) {
               const slotTime = currentSlotTime.toTimeString().substring(0, 5); // "HH:MM"
-              if (slotTime >= block.startTime && slotTime < block.endTime) {
+              const bStart = block?.startTime || block?.start_time;
+              const bEnd = block?.endTime || block?.end_time;
+              if (bStart && bEnd && slotTime >= bStart && slotTime < bEnd) {
                 isBlocked = true;
                 break;
               }
@@ -92,6 +99,7 @@ router.get('/available-slots/:doctorId', authMiddleware, async (req, res) => {
     res.status(500).send('Server Error');
   }
 });
+
 // @route   GET api/appointments/my-appointments
 // @desc    Get all appointments for the logged-in patient
 // @access  Private (Patient only)
@@ -100,10 +108,13 @@ router.get('/my-appointments', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Access denied. Not a patient.' });
   }
   try {
-    const appointments = await Appointment.find({ patient: req.user.userId })
-      .populate('doctor', 'fullName specialization')
-      .sort({ date: -1 });
+    const { data: appointments, error } = await supabase
+      .from('appointments')
+      .select(`*, doctor:doctors(full_name, specialization)`)
+      .eq('patient_id', req.user.userId)
+      .order('date', { ascending: false });
 
+    if (error) throw error;
     res.json(appointments);
   } catch (err) {
     console.error(err.message);
@@ -116,12 +127,16 @@ router.get('/doctor', authMiddleware, async (req, res) => {
     return res.status(403).json({ message: 'Access denied. Not a doctor.' });
   }
   try {
-    const appointments = await Appointment.find({ doctor: req.user.userId })
-      .populate('patient', 'fullName email') // Get patient details
-      .sort({ date: 1 });
+    const { data: appointments, error } = await supabase
+      .from('appointments')
+      .select(`*, patient:patients(full_name, email)`)
+      .eq('doctor_id', req.user.userId)
+      .order('date', { ascending: true });
+      
+    if (error) throw error;
     
-    // Filter out appointments where patient is null (deleted patient references)
-    const validAppointments = appointments.filter(appointment => appointment.patient);
+    // Filter out appointments where patient is null
+    const validAppointments = (appointments || []).filter(appointment => appointment.patient);
     
     res.json(validAppointments);
   } catch (err) {
@@ -134,11 +149,8 @@ router.get('/doctor', authMiddleware, async (req, res) => {
 // @desc    Book a new appointment
 // @access  Private (Patient only)
 router.post('/book', authMiddleware, async (req, res) => {
-  console.log(req.body);
-  // 1. Destructure ALL fields from the body
   const {
     doctorId, date, time, patientNameForVisit,
-    // Triage fields
     emergencyDisclaimerAcknowledged,
     primaryReason,
     symptomsList,
@@ -156,56 +168,62 @@ router.post('/book', authMiddleware, async (req, res) => {
   } = req.body;
 
   try {
-    // 2. Basic validation
     if (!doctorId || !date || !time || !patientNameForVisit || !primaryReason) {
       return res.status(400).json({ message: 'Missing required fields: doctor, date, time, patient name, or reason.' });
     }
 
-    // 3. Check for double-bookings (race condition)
-    const existingAppointment = await Appointment.findOne({
-      doctor: doctorId,
-      date: new Date(date), 
-      time: time,
-      status: 'upcoming'
-    });
-    if (existingAppointment) {
+    const dateStr = new Date(date).toISOString().split('T')[0];
+
+    const { data: existingAppointment, error: existErr } = await supabase
+        .from('appointments')
+        .select('id')
+        .eq('doctor_id', doctorId)
+        .eq('date', dateStr)
+        .eq('time', time)
+        .eq('status', 'upcoming')
+        .maybeSingle();
+
+    if (existingAppointment && !existErr) {
       return res.status(409).json({ message: 'This time slot is no longer available. Please select another.' });
     }
 
-    // 4. Fetch the doctor to get their fee
-    const doctor = await Doctor.findById(doctorId);
-    if (!doctor) {
+    const { data: doctor, error: docErr } = await supabase.from('doctors').select('*').eq('id', doctorId).maybeSingle();
+    
+    if (!doctor || docErr) {
       return res.status(404).json({ message: 'Doctor not found.' });
     }
-    const fee = doctor.consultationFee || 0; // Use default if fee is missing
+    const fee = doctor.consultation_fee || 0;
 
-    // 5. Create new appointment with all fields
-    const newAppointment = new Appointment({
-      patient: req.user.userId,
-      doctor: doctorId,
-      date,
-      time,
-      patientNameForVisit,
-      consultationFeeAtBooking: fee,
-      paymentStatus: 'pending',
-      // Triage fields
-      emergencyDisclaimerAcknowledged,
-      primaryReason,
-      symptomsList,
-      symptomsOther,
-      symptomsBegin,
-      severeSymptomsCheck,
-      preExistingConditions,
-      preExistingConditionsOther,
-      pastSurgeries,
-      familyHistory,
-      familyHistoryOther,
-      allergies,
-      medications,
-      consentToAI
-    });
+    const { data: appointment, error: insertErr } = await supabase.from('appointments').insert([{
+        patient_id: req.user.userId,
+        doctor_id: doctorId,
+        date: dateStr,
+        time,
+        patient_name_for_visit: patientNameForVisit,
+        consultation_fee_at_booking: fee,
+        payment_status: 'pending',
+        emergency_disclaimer_acknowledged: emergencyDisclaimerAcknowledged || false,
+        primary_reason: primaryReason,
+        symptoms_list: symptomsList || [],
+        symptoms_other: symptomsOther || "",
+        symptoms_begin: symptomsBegin || "",
+        severe_symptoms_check: severeSymptomsCheck || [],
+        pre_existing_conditions: preExistingConditions || [],
+        pre_existing_conditions_other: preExistingConditionsOther || "",
+        past_surgeries: pastSurgeries || "",
+        family_history: familyHistory || [],
+        family_history_other: familyHistoryOther || "",
+        allergies: allergies || "",
+        medications: medications || "",
+        consent_to_ai: consentToAI || false,
+        phone_number: "",
+        email: "",
+        birth_date: new Date().toISOString().split('T')[0],
+        sex: "",
+        primary_language: ""
+    }]).select().single();
 
-    const appointment = await newAppointment.save();
+    if (insertErr) throw insertErr;
 
     res.status(201).json(appointment);
   } catch (err) {
@@ -219,21 +237,29 @@ router.post('/book', authMiddleware, async (req, res) => {
 // @access  Private (Patient only)
 router.put('/:id/cancel', authMiddleware, async (req, res) => {
   try {
-    const appointment = await Appointment.findById(req.params.id);
-    if (!appointment) {
+    const appointmentId = req.params.id;
+    const { data: appointment, error: findErr } = await supabase.from('appointments').select('*').eq('id', appointmentId).maybeSingle();
+    
+    if (!appointment || findErr) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
-    if (appointment.patient.toString() !== req.user.userId) {
+    if (appointment.patient_id !== req.user.userId) {
       return res.status(401).json({ message: 'User not authorized' });
     }
-    // --- FIX: Add backticks for template literal ---
     if (appointment.status !== 'upcoming') {
       return res.status(400).json({ message: `Cannot cancel an appointment that is already ${appointment.status}.` });
     }
 
-    appointment.status = 'cancelled';
-    await appointment.save({ validateBeforeSave: false });
-    res.json({ message: 'Appointment cancelled successfully', appointment });
+    const { data: updatedAppointment, error: updateErr } = await supabase
+      .from('appointments')
+      .update({ status: 'cancelled' })
+      .eq('id', appointmentId)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    res.json({ message: 'Appointment cancelled successfully', appointment: updatedAppointment });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
@@ -249,21 +275,29 @@ router.put('/:id/complete', authMiddleware, async (req, res) => {
   }
 
   try {
-    const appointment = await Appointment.findById(req.params.id);
-    if (!appointment) {
+    const appointmentId = req.params.id;
+    const { data: appointment, error: findErr } = await supabase.from('appointments').select('*').eq('id', appointmentId).maybeSingle();
+    
+    if (!appointment || findErr) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
-    if (appointment.doctor.toString() !== req.user.userId) {
+    if (appointment.doctor_id !== req.user.userId) {
       return res.status(403).json({ message: 'Access denied. You are not assigned to this appointment.' });
     }
-    // --- FIX: Add backticks for template literal ---
     if (appointment.status !== 'upcoming') {
       return res.status(400).json({ message: `Cannot complete an appointment that is already ${appointment.status}.` });
     }
 
-    appointment.status = 'completed';
-    await appointment.save({ validateBeforeSave: false });
-    res.json({ message: 'Appointment marked as completed successfully', appointment });
+    const { data: updatedAppointment, error: updateErr } = await supabase
+      .from('appointments')
+      .update({ status: 'completed' })
+      .eq('id', appointmentId)
+      .select()
+      .single();
+      
+    if (updateErr) throw updateErr;
+
+    res.json({ message: 'Appointment marked as completed successfully', appointment: updatedAppointment });
   } catch (err) {
     console.error('Complete Appointment Error:', err.message);
     res.status(500).send('Server Error');
@@ -275,36 +309,28 @@ router.post('/create-payment-order', authMiddleware, async (req, res) => {
   try {
     const { doctorId, amount, currency = 'INR' } = req.body;
     
-    console.log('Payment order request body:', req.body);
-    console.log('Doctor ID:', doctorId);
-    console.log('Amount:', amount);
-    console.log('Currency:', currency);
-
-    // Validate required fields
     if (!doctorId) {
       return res.status(400).json({ message: 'Doctor ID is required.' });
     }
     
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: 'Valid amount is required.' });
+    const parsedAmount = parseInt(amount, 10);
+    
+    if (!parsedAmount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ message: 'Invalid consultation fee provided.' });
     }
 
-    // Validate doctor exists
-    const doctor = await Doctor.findById(doctorId);
+    const { data: doctor } = await supabase.from('doctors').select('*').eq('id', doctorId).maybeSingle();
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found.' });
     }
 
-    // Create Razorpay order
     const options = {
-      amount: parseInt(amount), // Ensure amount is an integer in paisa
+      amount: parsedAmount * 100, 
       currency: currency,
       receipt: `order_${Date.now()}`,
       payment_capture: 1
     };
     
-    console.log('Razorpay order options:', options);
-
     const order = await razorpay.orders.create(options);
 
     res.json({
@@ -334,7 +360,6 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
       ...appointmentData
     } = req.body;
 
-    // Verify payment signature
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'your_razorpay_key_secret')
@@ -348,47 +373,46 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
       });
     }
 
-    // Get doctor's consultation fee
-    const doctor = await Doctor.findById(doctorId);
+    const { data: doctor } = await supabase.from('doctors').select('*').eq('id', doctorId).maybeSingle();
     if (!doctor) {
       return res.status(404).json({ success: false, message: 'Doctor not found' });
     }
 
-    // Payment verified, now create appointment
-    const appointment = new Appointment({
-      patient: req.user.userId,
-      doctor: doctorId,
-      date: appointmentData.date,
-      time: appointmentData.time,
-      // Ensure primaryReason is set (some code paths used reasonForVisit previously)
-      primaryReason: appointmentData.primaryReason || appointmentData.reasonForVisit,
-      reasonForVisit: appointmentData.reasonForVisit || appointmentData.primaryReason,
-      symptoms: appointmentData.symptoms || [],
-      patientNameForVisit: appointmentData.patientNameForVisit,
-      phoneNumber: appointmentData.phoneNumber,
-      email: appointmentData.email,
-      birthDate: appointmentData.birthDate,
-      sex: appointmentData.sex,
-      primaryLanguage: appointmentData.primaryLanguage,
-      symptomsBegin: appointmentData.symptomsBegin,
-      severeSymptomsCheck: appointmentData.severeSymptomsCheck || [],
-      preExistingConditions: appointmentData.preExistingConditions || [],
-      pastSurgeries: appointmentData.pastSurgeries,
-      familyHistory: appointmentData.familyHistory || [],
-      allergies: appointmentData.allergies,
-      medications: appointmentData.medications,
-      consentToAI: appointmentData.consentToAI,
-      emergencyDisclaimerAcknowledged: appointmentData.emergencyDisclaimerAcknowledged,
-      paymentId: razorpay_payment_id,
-      orderId: razorpay_order_id,
-      paymentStatus: 'paid',
-      status: 'upcoming',
-      consultationFeeAtBooking: doctor.consultationFee || 0
-    });
+    const dateStr = new Date(appointmentData.date).toISOString().split('T')[0];
+    const bdayStr = appointmentData.birthDate ? new Date(appointmentData.birthDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-    await appointment.save();
+    const { data: appointment, error: insertErr } = await supabase.from('appointments').insert([{
+        patient_id: req.user.userId,
+        doctor_id: doctorId,
+        date: dateStr,
+        time: appointmentData.time,
+        primary_reason: appointmentData.primaryReason || appointmentData.reasonForVisit || "",
+        reason_for_visit: appointmentData.reasonForVisit || appointmentData.primaryReason || "",
+        symptoms: appointmentData.symptoms || [],
+        patient_name_for_visit: appointmentData.patientNameForVisit || "",
+        phone_number: appointmentData.phoneNumber || "",
+        email: appointmentData.email || "",
+        birth_date: bdayStr,
+        sex: appointmentData.sex || "",
+        primary_language: appointmentData.primaryLanguage || "",
+        symptoms_begin: appointmentData.symptomsBegin || "",
+        severe_symptoms_check: appointmentData.severeSymptomsCheck || [],
+        pre_existing_conditions: appointmentData.preExistingConditions || [],
+        past_surgeries: appointmentData.pastSurgeries || "",
+        family_history: appointmentData.familyHistory || [],
+        allergies: appointmentData.allergies || "",
+        medications: appointmentData.medications || "",
+        consent_to_ai: appointmentData.consentToAI || false,
+        emergency_disclaimer_acknowledged: appointmentData.emergencyDisclaimerAcknowledged || false,
+        payment_id: razorpay_payment_id,
+        order_id: razorpay_order_id,
+        payment_status: 'paid',
+        status: 'upcoming',
+        consultation_fee_at_booking: doctor.consultation_fee || 0
+    }]).select().single();
+    
+    if (insertErr) throw insertErr;
 
-    // Send confirmation email to patient for paid appointment
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
         <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
@@ -406,11 +430,11 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
           <div style="background-color: #f0fdf4; padding: 25px; border-radius: 10px; border: 2px solid #16a34a; margin: 25px 0;">
             <h3 style="color: #166534; margin: 0 0 15px 0; font-size: 18px;">📋 Appointment Details</h3>
             <div style="color: #333; line-height: 1.8;">
-              <p style="margin: 8px 0;"><strong>👨‍⚕️ Doctor:</strong> ${doctor.fullName}</p>
+              <p style="margin: 8px 0;"><strong>👨‍⚕️ Doctor:</strong> ${doctor.full_name}</p>
               <p style="margin: 8px 0;"><strong>🏥 Specialization:</strong> ${doctor.specialization}</p>
               <p style="margin: 8px 0;"><strong>📅 Date:</strong> ${new Date(appointmentData.date).toDateString()}</p>
               <p style="margin: 8px 0;"><strong>🕐 Time:</strong> ${appointmentData.time}</p>
-              <p style="margin: 8px 0;"><strong>💰 Amount Paid:</strong> ₹${doctor.consultationFee}</p>
+              <p style="margin: 8px 0;"><strong>💰 Amount Paid:</strong> ₹${doctor.consultation_fee}</p>
               <p style="margin: 8px 0;"><strong>💳 Payment ID:</strong> ${razorpay_payment_id}</p>
               <p style="margin: 8px 0;"><strong>✅ Status:</strong> <span style="color: #16a34a; font-weight: 600;">Confirmed & Paid</span></p>
             </div>
@@ -436,7 +460,7 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.CLIENT_URL || 'https://smart-healthcare-appointment-and-triage.onrender.com'}/patient/dashboard" 
+            <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/patient/dashboard" 
                style="background-color: #16a34a; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block; margin-right: 10px;">
               View My Appointments
             </a>
@@ -457,13 +481,12 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
 
     try {
       await sendEmail({
-        email: appointmentData.email,
+        email: appointmentData.email || "",
         subject: '🎉 Payment Successful - Appointment Confirmed | IntelliConsult',
         html: emailHtml
       });
     } catch (emailError) {
       console.error('Error sending payment confirmation email:', emailError);
-      // Continue with the response even if email fails
     }
 
     res.json({
@@ -482,4 +505,3 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
-

@@ -2,42 +2,91 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const passport = require('passport');
-const Patient = require('../models/Patient');
-const Doctor = require('../models/Doctor');
-const Admin = require('../models/Admin');
+const supabase = require('../config/supabase');
 const router = express.Router();
 const crypto = require('crypto');
 const sendEmail = require('../utils/email_utils.js');
 
-const models = {
-  patient: Patient,
-  doctor: Doctor,
-  admin: Admin,
+const getTable = (userType) => {
+  switch (userType) {
+    case 'patient': return 'patients';
+    case 'doctor': return 'doctors';
+    case 'admin': return 'admins';
+    default: return null;
+  }
 };
 
 router.post('/signup', async (req, res) => {
-  const { userType, email } = req.body;
-  const Model = models[userType];
+  const { userType, email, password } = req.body;
+  const table = getTable(userType);
 
-  if (!Model) {
+  if (!table) {
     return res.status(400).json({ message: 'Invalid user type specified.' });
   }
+
   try {
-    const patientExists = await Patient.findOne({ email });
-    const doctorExists = await Doctor.findOne({ email });
-    const adminExists = await Admin.findOne({ email });
+    // Check if user exists across all tables
+    const { data: patientExists } = await supabase.from('patients').select('id').eq('email', email).maybeSingle();
+    const { data: doctorExists } = await supabase.from('doctors').select('id').eq('email', email).maybeSingle();
+    const { data: adminExists } = await supabase.from('admins').select('id').eq('email', email).maybeSingle();
 
     if (patientExists || doctorExists || adminExists) {
       return res.status(400).json({ message: 'User with this email already exists.' });
     }
 
-    const user = new Model(req.body);
+    // Hash password
+    let hashedPassword = null;
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(password, salt);
+    }
+
+    // Generate Verification Token
+    const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const tokenExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    const isProfileComplete = userType !== 'doctor';
+
+    // Map body to snake_case for Supabase
+    const { fullName, specialization, experience, licenseNumber, phoneNumber, address, consultationFee, ...rest } = req.body;
     
-    const verificationToken = user.createEmailVerificationToken();
+    const userData = {
+      full_name: fullName,
+      email: email,
+      password: hashedPassword,
+      is_profile_complete: isProfileComplete,
+      email_verification_token: hashedToken,
+      email_verification_token_expires: tokenExpires,
+      user_type: userType
+    };
+
+    if (userType === 'doctor') {
+      if (specialization) userData.specialization = specialization;
+      if (experience) userData.experience = experience;
+      if (licenseNumber) userData.license_number = licenseNumber;
+      if (phoneNumber) userData.phone_number = phoneNumber;
+      if (address) userData.address = address;
+      if (consultationFee) userData.consultation_fee = consultationFee;
+      
+      userData.working_hours = {
+        monday: { enabled: false, start: "09:00", end: "17:00" },
+        tuesday: { enabled: false, start: "09:00", end: "17:00" },
+        wednesday: { enabled: false, start: "09:00", end: "17:00" },
+        thursday: { enabled: false, start: "09:00", end: "17:00" },
+        friday: { enabled: false, start: "09:00", end: "17:00" },
+        saturday: { enabled: false, start: "09:00", end: "17:00" },
+        sunday: { enabled: false, start: "09:00", end: "17:00" }
+      };
+    }
+
+    const { data: user, error } = await supabase.from(table).insert([userData]).select().single();
     
-    await user.save();
+    if (error) {
+      throw error;
+    }
     
-    const verificationURL = `https://smart-healthcare-appointment-and-triage.onrender.com/api/auth/verify-email/${verificationToken}`;
+    const verificationURL = `http://localhost:5001/api/auth/verify-email/${token}`;
     
     const message = `
       <h1>Welcome to IntelliConsult!</h1>
@@ -46,29 +95,24 @@ router.post('/signup', async (req, res) => {
       <p>If you did not create this account, please ignore this email.</p>
     `;
     
-    try {
-      await sendEmail({
+          const emailSent = await sendEmail({
         email: user.email,
         subject: 'IntelliConsult - Email Verification',
         html: message,
       });
       
+      if (!emailSent) {
+        console.error("Failed to send verification email");
+        await supabase.from(table).delete().eq('id', user.id);
+        return res.status(500).json({ message: 'Failed to send verification email. Please try signing up again.' });
+      }
+
       res.status(201).json({ 
         message: `Registration successful! Please check your email at ${user.email} to verify your account.` 
       });
-      
-    } catch (emailError) {
-      console.error(emailError);
-      await Model.findByIdAndDelete(user._id);
-      return res.status(500).json({ message: 'Failed to send verification email. Please try signing up again.' });
-    }
     
   } catch (error) {
     console.error('Signup Error:', error);
-    if (error.name === 'ValidationError') {
-        let messages = Object.values(error.errors).map(val => val.message);
-        return res.status(400).json({ message: messages.join(', ') });
-    }
     res.status(500).json({ message: 'Server error during signup.', error: error.message });
   }
 });
@@ -76,62 +120,77 @@ router.post('/signup', async (req, res) => {
 router.get('/verify-email/:token', async (req, res) => {
   try {
     const token = req.params.token;
-    
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
-      
-    const query = {
-      emailVerificationToken: hashedToken,
-      emailVerificationTokenExpires: { $gt: Date.now() }
-    };
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const now = new Date().toISOString();
 
-    let user = await Patient.findOne(query) ||
-               await Doctor.findOne(query) ||
-               await Admin.findOne(query);
+    let user = null;
+    let type = 'patient';
     
-    if (!user) {
-      return res.redirect('https://smart-healthcare-appointment-and-triage.onrender.com/login?verified=false');
+    let { data: pUser } = await supabase.from('patients').select('*').eq('email_verification_token', hashedToken).gt('email_verification_token_expires', now).maybeSingle();
+    if (pUser) {
+        user = pUser;
+        type = 'patient';
+    } else {
+        let { data: dUser } = await supabase.from('doctors').select('*').eq('email_verification_token', hashedToken).gt('email_verification_token_expires', now).maybeSingle();
+        if (dUser) {
+            user = dUser;
+            type = 'doctor';
+        } else {
+            let { data: aUser } = await supabase.from('admins').select('*').eq('email_verification_token', hashedToken).gt('email_verification_token_expires', now).maybeSingle();
+            if (aUser) {
+                user = aUser;
+                type = 'admin';
+            }
+        }
     }
     
-    user.isEmailVerified = true;
-    user.emailVerificationToken = undefined;
-    user.emailVerificationTokenExpires = undefined;
-    await user.save();
+    if (!user) {
+      return res.redirect('http://localhost:5173/login?verified=false');
+    }
     
-    res.redirect('https://smart-healthcare-appointment-and-triage.onrender.com/login?verified=true');
+    await supabase.from(getTable(type)).update({
+        is_email_verified: true,
+        email_verification_token: null,
+        email_verification_token_expires: null,
+    }).eq('id', user.id);
+    
+    res.redirect('http://localhost:5173/login?verified=true');
     
   } catch (error) {
     console.error('Email verification error:', error);
-    res.redirect('https://smart-healthcare-appointment-and-triage.onrender.com/login?verified=false');
+    res.redirect('http://localhost:5173/login?verified=false');
   }
 });
 
 router.post('/forgot-password', async (req, res) => {
   const { email, userType } = req.body;
-  const Model = models[userType];
+  const table = getTable(userType);
   
-  if (!Model) {
+  if (!table) {
     return res.status(400).json({ message: 'Invalid user type specified.' });
   }
 
   try {
-    const user = await Model.findOne({ email });
+    const { data: user } = await supabase.from(table).select('*').eq('email', email).maybeSingle();
 
     if (!user) {
       return res.status(200).json({ message: 'If an account with that email exists, a password reset link has been sent.' });
     }
 
-    if (user.googleId && !user.password) {
+    if (user.google_id && !user.password) {
       return res.status(200).json({ message: 'This account is registered with Google. Please log in using Google.' });
     }
 
-    const resetToken = user.createPasswordResetToken();
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const tokenExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
     
-    await user.save({ validateBeforeSave: false });
+    await supabase.from(table).update({
+        password_reset_token: hashedToken,
+        password_reset_token_expires: tokenExpires,
+    }).eq('id', user.id);
 
-    const resetURL = `https://smart-healthcare-appointment-and-triage.onrender.com/reset-password/${resetToken}`;
+    const resetURL = `http://localhost:5173/reset-password/${resetToken}`;
 
     const message = `
       <h1>Password Reset Request</h1>
@@ -163,88 +222,97 @@ router.put('/reset-password/:token', async (req, res) => {
       return res.status(400).json({ message: 'Passwords do not match.' });
     }
 
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(unhashedToken)
-      .digest('hex');
+    const hashedToken = crypto.createHash('sha256').update(unhashedToken).digest('hex');
+    const now = new Date().toISOString();
 
-    const query = {
-      passwordResetToken: hashedToken,
-      passwordResetTokenExpires: { $gt: Date.now() }
-    };
-
-    let user = await Patient.findOne(query) ||
-               await Doctor.findOne(query) ||
-               await Admin.findOne(query);
+    let user = null;
+    let type = 'patient';
+    
+    let { data: pUser } = await supabase.from('patients').select('*').eq('password_reset_token', hashedToken).gt('password_reset_token_expires', now).maybeSingle();
+    if (pUser) {
+        user = pUser;
+        type = 'patient';
+    } else {
+        let { data: dUser } = await supabase.from('doctors').select('*').eq('password_reset_token', hashedToken).gt('password_reset_token_expires', now).maybeSingle();
+        if (dUser) {
+            user = dUser;
+            type = 'doctor';
+        } else {
+            let { data: aUser } = await supabase.from('admins').select('*').eq('password_reset_token', hashedToken).gt('password_reset_token_expires', now).maybeSingle();
+            if (aUser) {
+                user = aUser;
+                type = 'admin';
+            }
+        }
+    }
 
     if (!user) {
       return res.status(400).json({ message: 'Token is invalid or has expired.' });
     }
 
-    user.password = password;
-    user.passwordResetToken = undefined;
-    user.passwordResetTokenExpires = undefined;
-    user.isEmailVerified = true; 
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    await user.save();
+    await supabase.from(getTable(type)).update({
+        password: hashedPassword,
+        password_reset_token: null,
+        password_reset_token_expires: null,
+        is_email_verified: true,
+    }).eq('id', user.id);
 
     res.status(200).json({ message: 'Password reset successful! You can now log in.' });
 
   } catch (error) {
     console.error('Reset Password Error:', error);
-    if (error.name === 'ValidationError') {
-        let messages = Object.values(error.errors).map(val => val.message);
-        return res.status(400).json({ message: messages.join(', ') });
-    }
     res.status(500).json({ message: 'An error occurred while resetting your password.' });
   }
 });
 
-
 router.post('/login', async (req, res) => {
   const { email, password, userType } = req.body;
-  const Model = models[userType];
+  const table = getTable(userType);
 
-  if (!Model) {
+  if (!table) {
     return res.status(400).json({ message: 'Invalid user type specified.' });
   }
   try {
-    const user = await Model.findOne({ email });
+    const { data: user } = await supabase.from(table).select('*').eq('email', email).maybeSingle();
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials or user role.' });
     }
     
-    if (user.googleId && !user.password) {
+    if (user.google_id && !user.password) {
       return res.status(400).json({ message: 'This account is registered with Google. Please use Google Sign In.' });
     }
     
     if (!user.password) {
-       return res.status(400).json({ message: 'Invalid account. No password set.' });
+      return res.status(400).json({ message: 'Invalid account. No password set.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid credentials.' });
     }
-    if (user.isVerified === false) {
+    
+    if ('is_verified' in user && user.is_verified === false) {
       return res.status(403).json({ 
         message: 'Your account has been suspended or is currently under review. Please contact support.' 
       });
     }
 
-    if (!user.isEmailVerified) {
+    if (!user.is_email_verified) {
       return res.status(401).json({ 
         message: 'Your email is not verified. Please check your inbox for the verification link.' 
       });
     }
 
     const token = jwt.sign(
-      { userId: user._id, userType: user.userType },
+      { userId: user.id, userType: user.user_type },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
 
-    if (!user.isProfileComplete) {
+    if (!user.is_profile_complete) {
         return res.status(200).json({ 
           token, 
           profileComplete: false, 
@@ -270,13 +338,13 @@ router.get('/google', passport.authenticate('google', {
 
 router.get('/google/callback',
   passport.authenticate('google', {
-    failureRedirect: 'https://smart-healthcare-appointment-and-triage.onrender.com/login?error=google_failed', 
+    failureRedirect: 'http://localhost:5173/login?error=google_failed', 
     failureMessage: true,
     session: false 
   }),
   (req, res) => {
-    const user = req.user;
-    const userType = user.userType; 
+    const user = req.user; // Note: Ensure passport strategy is also returning snake_case or adapt here
+    const userType = user.user_type || user.userType; 
 
     const token = jwt.sign(
       { userId: user.id, userType: userType },
@@ -285,7 +353,7 @@ router.get('/google/callback',
     );
 
     let redirectPath;
-    if (!user.isProfileComplete) {
+    if (!user.is_profile_complete && !user.isProfileComplete) {
       redirectPath = '/complete-profile'; 
     } else {
       switch (userType) {
@@ -296,7 +364,7 @@ router.get('/google/callback',
       }
     }
 
-    res.redirect(`https://smart-healthcare-appointment-and-triage.onrender.com/auth/callback?token=${token}&userType=${userType}&next=${encodeURIComponent(redirectPath)}`);
+    res.redirect(`http://localhost:5173/auth/callback?token=${token}&userType=${userType}&next=${encodeURIComponent(redirectPath)}`);
   }
 );
 

@@ -1,4 +1,4 @@
-const Admin = require('../models/Admin');
+const supabase = require('../config/supabase');
 const adminMiddleware = async (req, res, next) => {
   try {
     if (!req.user) {
@@ -7,8 +7,13 @@ const adminMiddleware = async (req, res, next) => {
     if (req.user.userType !== 'admin') {
       return res.status(403).json({ message: 'Forbidden: Access is restricted to administrators.' });
     }
-    const admin = await Admin.findById(req.user.userId);
-    if (!admin) {
+    const { data: admin, error } = await supabase
+      .from('admins')
+      .select('*')
+      .eq('id', req.user.userId)
+      .maybeSingle();
+
+    if (!admin || error) {
       return res.status(404).json({ message: 'Admin user not found.' });
     }
     next();

@@ -1,36 +1,40 @@
 const express = require('express');
 const router = express.Router();
-const Doctor = require('../models/Doctor'); // Assuming path is correct
-const Appointment = require('../models/Appointment'); // Assuming path is correct
-const authMiddleware = require('../middleware/auth'); // Assuming path is correct
-const { Parser } = require('json2csv'); // For CSV download
+const supabase = require('../config/supabase');
+const authMiddleware = require('../middleware/auth');
+const { Parser } = require('json2csv');
 
 // @route   GET api/doctors
 // @desc    Get all doctors with filtering and search
 // @access  Public (or Private if login required to browse)
 router.get('/', async (req, res) => {
   try {
-    const { search, specialty } = req.query;
-    const query = {};
+    const { search, specialty, includeUnverified } = req.query;
+    
+    let query = supabase.from('doctors').select('*');
 
-    // By default, only return verified doctors to public clients.
-    // Use `?includeUnverified=true` to explicitly request unverified doctors (admin/debug use).
-    if (req.query.includeUnverified !== 'true') {
-      query.isVerified = true;
+    if (includeUnverified !== 'true') {
+      query = query.eq('is_verified', true);
     }
 
-    // Filter by specialization (corrected field name)
     if (specialty && specialty !== 'All Specialties') {
-      query.specialization = specialty;
+      query = query.eq('specialization', specialty);
     }
 
-    // Case-insensitive, "starts-with" search on fullName
     if (search) {
-      query.fullName = { $regex: new RegExp('^' + search, 'i') };
+      query = query.ilike('full_name', `%${search}%`);
     }
 
-    const doctors = await Doctor.find(query).select('-password');
-    res.json(doctors);
+    const { data: doctors, error } = await query;
+    if (error) throw error;
+    
+    // Remove passwords
+    const sanitizedDoctors = (doctors || []).map(d => {
+      const { password, ...rest } = d;
+      return rest;
+    });
+
+    res.json(sanitizedDoctors);
   } catch (err) {
     console.error('Get Doctors Error:', err.message);
     res.status(500).send('Server Error');
@@ -41,7 +45,6 @@ router.get('/', async (req, res) => {
 // @desc    Get earnings data for the logged-in doctor
 // @access  Private (Doctor only)
 router.get('/earnings/data', authMiddleware, async (req, res) => {
-  // 1. Verify user is a doctor
   if (req.user.userType !== 'doctor') {
     return res.status(403).json({ message: 'Access denied. Not a doctor.' });
   }
@@ -49,11 +52,14 @@ router.get('/earnings/data', authMiddleware, async (req, res) => {
   try {
     const doctorId = req.user.userId;
 
-    // 2. Fetch all appointments for this doctor
-    const appointments = await Appointment.find({ doctor: doctorId })
-      .sort({ date: -1 }); // Sort newest first for transactions
+    const { data: appointments, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .order('date', { ascending: false });
 
-    // 3. Calculate earnings (only count 'completed' appointments)
+    if (error) throw error;
+
     let today = 0;
     let thisWeek = 0;
     let thisMonth = 0;
@@ -61,10 +67,9 @@ router.get('/earnings/data', authMiddleware, async (req, res) => {
     const monthlyBreakdownMap = {};
 
     const now = new Date();
-    // Ensure todayStart calculation doesn't modify 'now' permanently for subsequent calculations
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekStart = new Date(todayStart);
-    weekStart.setDate(weekStart.getDate() - todayStart.getDay()); // Start of current week (Sunday)
+    weekStart.setDate(weekStart.getDate() - todayStart.getDay());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const tomorrowStart = new Date(todayStart);
@@ -80,10 +85,10 @@ router.get('/earnings/data', authMiddleware, async (req, res) => {
       return status === 'completed' || status === 'upcoming';
     };
 
-    appointments.forEach(apt => {
+    (appointments || []).forEach(apt => {
       if (!shouldCountAppointment(apt)) return;
 
-      const fee = apt.consultationFeeAtBooking || 0;
+      const fee = apt.consultation_fee_at_booking || 0;
       totalEarnings += fee;
       const aptDate = new Date(apt.date);
 
@@ -108,17 +113,16 @@ router.get('/earnings/data', authMiddleware, async (req, res) => {
       monthlyBreakdownMap[monthKey].earnings += fee;
     });
 
-    // 4. Format recent transactions (show non-cancelled, use main status)
-    const recentTransactions = appointments
+    const recentTransactions = (appointments || [])
       .filter(apt => apt.status !== 'cancelled')
       .slice(0, 10)
       .map(apt => ({
-        id: apt._id,
-        patientName: apt.patientNameForVisit,
+        id: apt.id,
+        patientName: apt.patient_name_for_visit,
         date: apt.date,
         time: apt.time,
-        amount: apt.consultationFeeAtBooking,
-        status: apt.status, // Use main appointment status ('upcoming' or 'completed')
+        amount: apt.consultation_fee_at_booking,
+        status: apt.status,
       }));
 
     const monthlyBreakdown = Object.values(monthlyBreakdownMap)
@@ -129,7 +133,6 @@ router.get('/earnings/data', authMiddleware, async (req, res) => {
         return b.year - a.year;
       })
       .map(({ month, appointments, earnings }) => ({ month, appointments, earnings }));
-
 
     res.json({
       today,
@@ -157,27 +160,31 @@ router.get('/earnings/download-report', authMiddleware, async (req, res) => {
   try {
     const doctorId = req.user.userId;
 
-    const appointments = await Appointment.find({
-      doctor: doctorId,
-    }).sort({ date: -1 });
+    const { data: appointments, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .order('date', { ascending: false });
+
+    if (error) throw error;
 
     const fields = [
-      { label: 'Appointment ID', value: '_id' },
+      { label: 'Appointment ID', value: 'id' },
       { label: 'Date', value: row => new Date(row.date).toLocaleDateString() },
       { label: 'Time', value: 'time' },
       { label: 'Patient Name', value: 'patientNameForVisit' },
       { label: 'Reason', value: 'reasonForVisit' },
       { label: 'Fee', value: 'consultationFeeAtBooking' },
       { label: 'Status', value: 'status' },
-      // Removed paymentStatus as per your request
     ];
-    const csvData = appointments.map(apt => ({
-      _id: apt._id,
+    
+    const csvData = (appointments || []).map(apt => ({
+      id: apt.id,
       date: apt.date,
       time: apt.time,
-      patientNameForVisit: apt.patientNameForVisit,
-      reasonForVisit: apt.reasonForVisit,
-      consultationFeeAtBooking: apt.consultationFeeAtBooking,
+      patientNameForVisit: apt.patient_name_for_visit,
+      reasonForVisit: apt.reason_for_visit,
+      consultationFeeAtBooking: apt.consultation_fee_at_booking,
       status: apt.status,
     }));
 
@@ -195,27 +202,29 @@ router.get('/earnings/download-report', authMiddleware, async (req, res) => {
   }
 });
 
-
 // @route   GET api/doctors/:id
 // @desc    Get a single doctor's profile by their ID
 // @access  Public (or Private if login required)
-// IMPORTANT: This MUST come AFTER specific routes like '/earnings/...'
 router.get('/:id', async (req, res) => {
   try {
-    const doctor = await Doctor.findById(req.params.id).select('-password');
+    const { data: doctor, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+      
+    if (error) throw error;
+    
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
-    res.json(doctor);
+    
+    const { password, ...doctorWithoutPassword } = doctor;
+    res.json(doctorWithoutPassword);
   } catch (err) {
     console.error('Get Doctor by ID Error:', err.message);
-    // Handle potential CastError if the ID format is invalid
-    if (err.kind === 'ObjectId') {
-        return res.status(400).json({ message: 'Invalid Doctor ID format' });
-    }
     res.status(500).send('Server Error');
   }
 });
-
 
 module.exports = router;

@@ -2,29 +2,38 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const authMiddleware = require('../middleware/auth');
-const Patient = require('../models/Patient');
-const Doctor = require('../models/Doctor');
-const Admin = require('../models/Admin');
-const models = {
-  patient: Patient,
-  doctor: Doctor,
-  admin: Admin,
-};   
+const supabase = require('../config/supabase');
+
+const camelToSnake = (obj) => {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(camelToSnake);
+  return Object.keys(obj).reduce((acc, key) => {
+    const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+    acc[snakeKey] = obj[key];
+    return acc;
+  }, {});
+};
+
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
     const { userId, userType } = req.user;
-    const Model = models[userType];
-
-    if (!Model) {
+    
+    if (!['patient', 'doctor', 'admin'].includes(userType)) {
       return res.status(400).json({ message: 'Invalid user type found in token.' });
     }
 
-    const user = await Model.findById(userId).select('-password');
+    const { data: user, error } = await supabase
+      .from(userType + 's')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
 
-    if (!user) {
+    if (!user || error) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(user);
+    
+    const { password, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
   } catch (err) {
     console.error("GET /profile Error:", err.message);
     res.status(500).send('Server Error');
@@ -36,22 +45,23 @@ router.put('/profile', authMiddleware, async (req, res) => {
     const { userId, userType } = req.user;
     const { fullName } = req.body;
 
-    const Model = models[userType];
-    if (!Model) {
+    if (!['patient', 'doctor', 'admin'].includes(userType)) {
       return res.status(400).json({ message: 'Invalid user type in token.' });
     }
 
-    const updatedUser = await Model.findByIdAndUpdate(
-      userId,
-      { fullName },
-      { new: true }
-    ).select('-password'); 
+    const { data: updatedUser, error } = await supabase
+      .from(userType + 's')
+      .update({ full_name: fullName })
+      .eq('id', userId)
+      .select()
+      .single();
 
-    if (!updatedUser) {
+    if (!updatedUser || error) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    res.json(updatedUser);
+    const { password, ...userWithoutPassword } = updatedUser;
+    res.json(userWithoutPassword);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
@@ -63,113 +73,122 @@ router.put('/complete-profile', authMiddleware, async (req, res) => {
     const { userId, userType: originalUserType } = req.user;
     const { userType: newUserType, ...profileData } = req.body;
 
-    const OriginalModel = models[originalUserType];
-    const NewModel = models[newUserType];
-
-    if (!OriginalModel || !NewModel) {
+    if (!['patient', 'doctor', 'admin'].includes(originalUserType) || 
+        !['patient', 'doctor', 'admin'].includes(newUserType)) {
       return res.status(400).json({ message: 'Invalid user type specified.' });
     }
-    const originalUser = await OriginalModel.findById(userId);
-    if (!originalUser) {
+
+    const { data: originalUser, error: findErr } = await supabase
+      .from(originalUserType + 's')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+      
+    if (!originalUser || findErr) {
       return res.status(404).json({ message: 'Original user account not found.' });
     }
+
+    const snakeProfileData = camelToSnake(profileData);
+
     if (originalUserType === newUserType) {
-      const updateData = {
-        ...profileData,
-        isProfileComplete: true,
-      };
+      const { data: updatedUser, error: updateErr } = await supabase
+        .from(originalUserType + 's')
+        .update({
+          ...snakeProfileData,
+          is_profile_complete: true,
+        })
+        .eq('id', userId)
+        .select()
+        .single();
 
-      const updatedUser = await OriginalModel.findByIdAndUpdate(
-        userId,
-        { $set: updateData },
-        { new: true, runValidators: true }
-      ).select('-password');
+      if (updateErr) throw updateErr;
 
+      const { password, ...userWithoutPassword } = updatedUser;
       return res.json({
         message: 'Profile completed successfully!',
-        user: updatedUser,
+        user: userWithoutPassword,
       });
     }
-    const newUserProfile = {
-      ...originalUser.toObject(),
-      ...profileData,             
-      _id: originalUser._id,      
-      userType: newUserType,      
-      isProfileComplete: true,
-    };
-    
-    
-    delete newUserProfile.__v;
 
-  
-    const newUser = new NewModel(newUserProfile);
-    await newUser.save();
+    // Role transformation: create new role entry and delete old one
+    // Remove fields that might conflict
+    const { id, created_at, updated_at, google_id, ...transferData } = originalUser;
+    
+    // We retain the google_id if it exists
+    if (google_id) transferData.google_id = google_id;
+    
+    const { data: newUser, error: createErr } = await supabase
+      .from(newUserType + 's')
+      .insert([{
+        ...transferData,
+        ...snakeProfileData,
+        user_type: newUserType,
+        is_profile_complete: true,
+      }])
+      .select()
+      .single();
 
-    await OriginalModel.findByIdAndDelete(userId);
+    if (createErr) throw createErr;
+
+    await supabase.from(originalUserType + 's').delete().eq('id', userId);
 
     const newToken = jwt.sign(
-      { userId: newUser._id, userType: newUser.userType },
+      { userId: newUser.id, userType: newUser.user_type },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
 
+    const { password, ...userWithoutPassword } = newUser;
     res.json({
       message: 'Profile transformed and completed successfully!',
-      user: newUser.toObject(),
+      user: userWithoutPassword,
       token: newToken,
     });
 
   } catch (err) {
     console.error("PUT /complete-profile Error:", err);
-   
-    if (err.name === 'ValidationError') {
-        let messages = Object.values(err.errors).map(val => val.message);
-        return res.status(400).json({ message: messages.join(', ') });
-    }
     res.status(500).send('Server Error');
   }
 });
 
-// Update profile endpoint for doctors/patients to update their full profile information
 router.put('/update-profile', authMiddleware, async (req, res) => {
   try {
     const { userId, userType } = req.user;
     const updateData = req.body;
 
-    const Model = models[userType];
-    if (!Model) {
+    if (!['patient', 'doctor', 'admin'].includes(userType)) {
       return res.status(400).json({ message: 'Invalid user type in token.' });
     }
 
-    // Remove any fields that shouldn't be updated via this endpoint
     delete updateData.password;
     delete updateData.userType;
+    delete updateData.id;
     delete updateData._id;
     delete updateData.isVerified;
+    delete updateData.is_verified;
 
-    const updatedUser = await Model.findByIdAndUpdate(
-      userId,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    ).select('-password');
+    const snakeUpdateData = camelToSnake(updateData);
 
-    if (!updatedUser) {
+    const { data: updatedUser, error } = await supabase
+      .from(userType + 's')
+      .update(snakeUpdateData)
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (!updatedUser || error) {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    const { password, ...userWithoutPassword } = updatedUser;
     res.json({
       message: 'Profile updated successfully!',
-      user: updatedUser,
+      user: userWithoutPassword,
     });
   } catch (err) {
     console.error('Update profile error:', err);
-    if (err.name === 'ValidationError') {
-      let messages = Object.values(err.errors).map(val => val.message);
-      return res.status(400).json({ message: messages.join(', ') });
-    }
     res.status(500).json({ message: 'Server Error' });
   }
 });
 
 module.exports = router;
-

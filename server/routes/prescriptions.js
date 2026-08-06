@@ -1,9 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const supabase = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
-const Appointment = require('../models/Appointment');
-const MedicalRecord = require('../models/MedicalRecord');
-const Patient = require('../models/Patient');
 const sendEmail = require('../utils/email_utils');
 const PDFDocument = require('pdfkit');
 
@@ -14,8 +12,8 @@ async function sendPrescriptionSummaryEmail(medicalRecord, patient, doctor) {
   }
 
   try {
-    const followUpDateFormatted = medicalRecord.followUpRequired && medicalRecord.followUpDate
-      ? new Date(medicalRecord.followUpDate).toLocaleDateString('en-US', {
+    const followUpDateFormatted = medicalRecord.follow_up_required && medicalRecord.follow_up_date
+      ? new Date(medicalRecord.follow_up_date).toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
@@ -23,8 +21,10 @@ async function sendPrescriptionSummaryEmail(medicalRecord, patient, doctor) {
       })
       : null;
 
-    const prescriptionHtmlList = medicalRecord.prescription.length > 0
-      ? '<ul style="padding-left: 20px; margin: 0;">' + medicalRecord.prescription.map(item =>
+    const prescriptionList = medicalRecord.prescription || [];
+
+    const prescriptionHtmlList = prescriptionList.length > 0
+      ? '<ul style="padding-left: 20px; margin: 0;">' + prescriptionList.map(item =>
         `<li style="margin-bottom: 12px;">
            <strong style="color: #111827; font-size: 16px;">${item.medication || 'Item'}</strong><br> 
            ${item.dosage ? `<span style="color: #555;">Dosage:</span> ${item.dosage}<br>` : ''}
@@ -34,21 +34,21 @@ async function sendPrescriptionSummaryEmail(medicalRecord, patient, doctor) {
       ).join('') + '</ul>'
       : '<p style="margin: 0;">No specific prescription items listed.</p>';
 
-    const followUpHtml = medicalRecord.followUpRequired && followUpDateFormatted
+    const followUpHtml = medicalRecord.follow_up_required && followUpDateFormatted
       ? `
       <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
         <h3 style="color: #166534; margin: 0 0 15px 0; font-size: 18px; font-weight: 600;">📋 Follow-up Details</h3>
         <div style="color: #155724; line-height: 1.7;">
           <p style="margin: 8px 0;"><strong>Recommended Date:</strong> ${followUpDateFormatted}</p>
-          ${medicalRecord.followUpNotes ? `<p style="margin: 8px 0;"><strong>Notes:</strong> ${medicalRecord.followUpNotes}</p>` : ''}
+          ${medicalRecord.follow_up_notes ? `<p style="margin: 8px 0;"><strong>Notes:</strong> ${medicalRecord.follow_up_notes}</p>` : ''}
         </div>
       </div>
       `
       : '';
 
-    const actionsHtml = medicalRecord.followUpRequired ? `
+    const actionsHtml = medicalRecord.follow_up_required ? `
       <div style="text-align: center; margin: 30px 0 15px;">
-        <a href="${process.env.CLIENT_URL || 'https://smart-healthcare-appointment-and-triage.onrender.com'}/patient/dashboard" 
+        <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/patient/dashboard" 
            style="background-color: #0F5257; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
           Book Follow-up
         </a>
@@ -64,9 +64,9 @@ async function sendPrescriptionSummaryEmail(medicalRecord, patient, doctor) {
           </div>
           
           <div style="padding: 30px;">
-            <h2 style="color: #333; margin-top: 0; margin-bottom: 20px; font-size: 22px;">Dear ${patient.fullName},</h2>
+            <h2 style="color: #333; margin-top: 0; margin-bottom: 20px; font-size: 22px;">Dear ${patient.full_name},</h2>
             <p style="color: #555; line-height: 1.6; font-size: 16px; margin-bottom: 25px;">
-              Here is the summary from your recent consultation with ${doctor.fullName || 'your doctor'}.
+              Here is the summary from your recent consultation with ${doctor.full_name || 'your doctor'}.
             </p>
 
             <div style="margin-bottom: 25px;">
@@ -138,41 +138,48 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Appointment ID and diagnosis are required.' });
     }
 
-    const appointment = await Appointment.findById(normalizedAppointmentId)
-      .populate('patient', 'fullName email')
-      .populate('doctor', 'fullName email');
+    const { data: appointment, error: aptErr } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        patient:patients(*),
+        doctor:doctors(*)
+      `)
+      .eq('id', normalizedAppointmentId)
+      .maybeSingle();
 
-    if (!appointment) {
+    if (!appointment || aptErr) {
       return res.status(404).json({ message: 'Appointment not found.' });
     }
 
-    const doctorIdString = appointment.doctor._id ? appointment.doctor._id.toString() : appointment.doctor.toString();
-    if (doctorIdString !== req.user.userId) {
+    if (appointment.doctor_id !== req.user.userId) {
       return res.status(403).json({ message: 'Access denied. This appointment does not belong to you.' });
     }
 
-    const existingRecord = await MedicalRecord.findOne({ appointment: normalizedAppointmentId });
+    const { data: existingRecord } = await supabase
+      .from('medical_records')
+      .select('id')
+      .eq('appointment_id', normalizedAppointmentId)
+      .maybeSingle();
+
     if (existingRecord) {
       return res.status(400).json({ message: 'Prescription already exists for this appointment. Use update endpoint instead.' });
     }
 
-    const patientId = appointment.patient._id ? appointment.patient._id : appointment.patient;
-    const doctorId = appointment.doctor._id ? appointment.doctor._id : appointment.doctor;
+    const { data: medicalRecord, error: insertErr } = await supabase.from('medical_records').insert([{
+        appointment_id: normalizedAppointmentId,
+        patient_id: appointment.patient_id,
+        doctor_id: appointment.doctor_id,
+        diagnosis: diagnosis.trim(),
+        notes: notes ? notes.trim() : '',
+        prescription: prescription || [],
+        follow_up_required: followUpRequired || false,
+        follow_up_date: followUpRequired && followUpDate ? new Date(followUpDate).toISOString().split('T')[0] : null,
+        follow_up_notes: followUpRequired && followUpNotes ? followUpNotes.trim() : '',
+        created_by_id: req.user.userId
+    }]).select().single();
 
-    const medicalRecord = new MedicalRecord({
-      appointment: normalizedAppointmentId,
-      patient: patientId,
-      doctor: doctorId,
-      diagnosis: diagnosis.trim(),
-      notes: notes ? notes.trim() : '',
-      prescription: prescription || [],
-      followUpRequired: followUpRequired || false,
-      followUpDate: followUpRequired && followUpDate ? new Date(followUpDate) : null,
-      followUpNotes: followUpRequired && followUpNotes ? followUpNotes.trim() : '',
-      createdBy: req.user.userId
-    });
-
-    await medicalRecord.save();
+    if (insertErr) throw insertErr;
 
     try {
       await sendPrescriptionSummaryEmail(medicalRecord, appointment.patient, appointment.doctor);
@@ -201,25 +208,36 @@ router.get('/appointment/:appointmentId', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Appointment ID is required.' });
     }
 
-    const appointment = await Appointment.findById(normalizedAppointmentId);
-    if (!appointment) {
+    const { data: appointment, error: aptErr } = await supabase
+      .from('appointments')
+      .select('id, doctor_id, patient_id')
+      .eq('id', normalizedAppointmentId)
+      .maybeSingle();
+
+    if (!appointment || aptErr) {
       return res.status(404).json({ message: 'Appointment not found.' });
     }
 
-    if (req.user.userType === 'doctor' && appointment.doctor.toString() !== req.user.userId) {
+    if (req.user.userType === 'doctor' && appointment.doctor_id !== req.user.userId) {
       return res.status(403).json({ message: 'Access denied.' });
     }
 
-    if (req.user.userType === 'patient' && appointment.patient.toString() !== req.user.userId) {
+    if (req.user.userType === 'patient' && appointment.patient_id !== req.user.userId) {
       return res.status(403).json({ message: 'Access denied.' });
     }
 
-    const medicalRecord = await MedicalRecord.findOne({ appointment: normalizedAppointmentId })
-      .populate('doctor', 'fullName specialization')
-      .populate('patient', 'fullName email')
-      .populate('appointment', 'date'); // Populated appointment date
+    const { data: medicalRecord, error: recErr } = await supabase
+      .from('medical_records')
+      .select(`
+        *,
+        doctor:doctors(full_name, specialization),
+        patient:patients(full_name, email),
+        appointment:appointments(date)
+      `)
+      .eq('appointment_id', normalizedAppointmentId)
+      .maybeSingle();
 
-    if (!medicalRecord) {
+    if (!medicalRecord || recErr) {
       return res.status(404).json({ message: 'Prescription not found for this appointment.' });
     }
 
@@ -238,17 +256,23 @@ router.get('/:recordId/pdf', authMiddleware, async (req, res) => {
   try {
     const { recordId } = req.params;
 
-    const medicalRecord = await MedicalRecord.findById(recordId)
-      .populate('doctor', 'fullName specialization')
-      .populate('patient', 'fullName email')
-      .populate('appointment', 'date time');
+    const { data: medicalRecord, error } = await supabase
+      .from('medical_records')
+      .select(`
+        *,
+        doctor:doctors(id, full_name, specialization),
+        patient:patients(id, full_name, email),
+        appointment:appointments(date, time)
+      `)
+      .eq('id', recordId)
+      .maybeSingle();
 
-    if (!medicalRecord) {
+    if (!medicalRecord || error) {
       return res.status(404).json({ message: 'Medical record not found.' });
     }
 
-    const isDoctor = req.user.userType === 'doctor' && medicalRecord.doctor._id.toString() === req.user.userId;
-    const isPatient = req.user.userType === 'patient' && medicalRecord.patient._id.toString() === req.user.userId;
+    const isDoctor = req.user.userType === 'doctor' && medicalRecord.doctor_id === req.user.userId;
+    const isPatient = req.user.userType === 'patient' && medicalRecord.patient_id === req.user.userId;
 
     if (!isDoctor && !isPatient) {
       return res.status(403).json({ message: 'Access denied.' });
@@ -256,30 +280,27 @@ router.get('/:recordId/pdf', authMiddleware, async (req, res) => {
 
     const doc = new PDFDocument({ margin: 50 });
 
-    const filename = `Prescription-${medicalRecord._id}.pdf`;
+    const filename = `Prescription-${medicalRecord.id}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
     doc.pipe(res);
 
-    
     doc.fillColor('#0F5257').fontSize(26).font('Helvetica-Bold').text('IntelliConsult', 50, 50);
     
     doc.strokeColor('#0F5257').lineWidth(1).moveTo(50, 95).lineTo(550, 95).stroke();
-    
     
     doc.moveDown(1); 
     doc.fontSize(20).fillColor('#000').font('Helvetica-Bold').text('Consultation Summary', { align: 'left' });
     doc.moveDown(2);
 
-  
     const infoTop = doc.y;
     doc.fontSize(12).fillColor('#555');
     doc.font('Helvetica-Bold').text('Patient:', 50, infoTop);
-    doc.font('Helvetica').text(medicalRecord.patient.fullName, 110, infoTop);
+    doc.font('Helvetica').text(medicalRecord.patient.full_name, 110, infoTop);
     
     doc.font('Helvetica-Bold').text('Doctor:', 300, infoTop);
-    doc.font('Helvetica').text(medicalRecord.doctor.fullName, 360, infoTop);
+    doc.font('Helvetica').text(medicalRecord.doctor.full_name, 360, infoTop);
 
     doc.font('Helvetica-Bold').text('Email:', 50, infoTop + 20);
     doc.font('Helvetica').text(medicalRecord.patient.email, 110, infoTop + 20);
@@ -292,7 +313,6 @@ router.get('/:recordId/pdf', authMiddleware, async (req, res) => {
     
     doc.moveDown(5);
 
-   
     const drawSection = (title, content) => {
       if (!content) return;
       doc.fontSize(16).fillColor('#0F5257').font('Helvetica-Bold').text(title);
@@ -304,13 +324,14 @@ router.get('/:recordId/pdf', authMiddleware, async (req, res) => {
 
     drawSection('Diagnosis', medicalRecord.diagnosis);
 
- 
     doc.fontSize(16).fillColor('#0F5257').font('Helvetica-Bold').text('Prescription (Rx)');
     doc.strokeColor('#e5e7eb').lineWidth(1).moveTo(50, doc.y + 5).lineTo(550, doc.y + 5).stroke();
     doc.moveDown(1);
 
-    if (medicalRecord.prescription && medicalRecord.prescription.length > 0) {
-      medicalRecord.prescription.forEach(med => {
+    const prescriptionList = medicalRecord.prescription || [];
+
+    if (prescriptionList.length > 0) {
+      prescriptionList.forEach(med => {
         doc.fontSize(13).fillColor('#000').font('Helvetica-Bold').text(med.medication || 'N/A');
         doc.moveDown(0.2);
         doc.fontSize(12).fillColor('#333').font('Helvetica');
@@ -327,24 +348,22 @@ router.get('/:recordId/pdf', authMiddleware, async (req, res) => {
     doc.moveDown(1);
     drawSection("Doctor's Notes", medicalRecord.notes);
 
-    
-    if (medicalRecord.followUpRequired) {
+    if (medicalRecord.follow_up_required) {
       doc.fontSize(16).fillColor('#0F5257').font('Helvetica-Bold').text('Follow-up Required');
       doc.strokeColor('#e5e7eb').lineWidth(1).moveTo(50, doc.y + 5).lineTo(550, doc.y + 5).stroke();
       doc.moveDown(1);
       doc.fontSize(12).fillColor('#333').font('Helvetica');
-      doc.text(`Date: ${new Date(medicalRecord.followUpDate).toLocaleDateString()}`);
-      if (medicalRecord.followUpNotes) {
-        doc.text(`Notes: ${medicalRecord.followUpNotes}`);
+      doc.text(`Date: ${new Date(medicalRecord.follow_up_date).toLocaleDateString()}`);
+      if (medicalRecord.follow_up_notes) {
+        doc.text(`Notes: ${medicalRecord.follow_up_notes}`);
       }
       doc.moveDown(2);
     }
 
-    
     doc.strokeColor('#e5e7eb').lineWidth(1).moveTo(50, 710).lineTo(550, 710).stroke();
     doc.moveDown(0.5);
     doc.fontSize(10).fillColor('grey');
-    doc.text(`Record ID: ${medicalRecord._id}`, 50, 720, { align: 'left' });
+    doc.text(`Record ID: ${medicalRecord.id}`, 50, 720, { align: 'left' });
     doc.text('IntelliConsult | Confidential', 50, 735, { align: 'left' });
 
     doc.end();
@@ -355,21 +374,27 @@ router.get('/:recordId/pdf', authMiddleware, async (req, res) => {
   }
 });
 
-
 router.get('/doctor', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'doctor') {
     return res.status(403).json({ message: 'Access denied. Not a doctor.' });
   }
 
   try {
-    const records = await MedicalRecord.find({ doctor: req.user.userId })
-      .populate('patient', 'fullName email')
-      .populate('appointment', 'date time primaryReason')
-      .sort({ createdAt: -1 });
+    const { data: records, error } = await supabase
+      .from('medical_records')
+      .select(`
+        *,
+        patient:patients(full_name, email),
+        appointment:appointments(date, time, primary_reason)
+      `)
+      .eq('doctor_id', req.user.userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
 
     res.json({
       success: true,
-      count: records.length,
+      count: (records || []).length,
       records
     });
   } catch (err) {
@@ -384,14 +409,21 @@ router.get('/patient', authMiddleware, async (req, res) => {
   }
 
   try {
-    const records = await MedicalRecord.find({ patient: req.user.userId })
-      .populate('doctor', 'fullName specialization')
-      .populate('appointment', 'date time primaryReason')
-      .sort({ createdAt: -1 });
+    const { data: records, error } = await supabase
+      .from('medical_records')
+      .select(`
+        *,
+        doctor:doctors(full_name, specialization),
+        appointment:appointments(date, time, primary_reason)
+      `)
+      .eq('patient_id', req.user.userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
 
     res.json({
       success: true,
-      count: records.length,
+      count: (records || []).length,
       records
     });
   } catch (err) {
@@ -416,38 +448,52 @@ router.put('/:recordId', authMiddleware, async (req, res) => {
       followUpNotes
     } = req.body;
 
-    const medicalRecord = await MedicalRecord.findById(recordId)
-      .populate('patient', 'fullName email')
-      .populate('doctor', 'fullName');
+    const { data: medicalRecord, error: findErr } = await supabase
+      .from('medical_records')
+      .select(`
+        *,
+        patient:patients(full_name, email),
+        doctor:doctors(full_name)
+      `)
+      .eq('id', recordId)
+      .maybeSingle();
 
-    if (!medicalRecord) {
+    if (!medicalRecord || findErr) {
       return res.status(404).json({ message: 'Medical record not found.' });
     }
 
-    if (medicalRecord.doctor._id.toString() !== req.user.userId) {
+    if (medicalRecord.doctor_id !== req.user.userId) {
       return res.status(403).json({ message: 'Access denied. This record does not belong to you.' });
     }
 
-    if (diagnosis !== undefined) medicalRecord.diagnosis = diagnosis.trim();
-    if (notes !== undefined) medicalRecord.notes = notes.trim();
-    if (prescription !== undefined) medicalRecord.prescription = prescription;
+    const updateData = {};
+    if (diagnosis !== undefined) updateData.diagnosis = diagnosis.trim();
+    if (notes !== undefined) updateData.notes = notes.trim();
+    if (prescription !== undefined) updateData.prescription = prescription;
     
     if (followUpRequired !== undefined) {
-        medicalRecord.followUpRequired = followUpRequired;
+        updateData.follow_up_required = followUpRequired;
     }
     
     if (followUpDate !== undefined) {
-      medicalRecord.followUpDate = medicalRecord.followUpRequired && followUpDate ? new Date(followUpDate) : null;
+      updateData.follow_up_date = updateData.follow_up_required && followUpDate ? new Date(followUpDate).toISOString().split('T')[0] : null;
     }
 
     if (followUpNotes !== undefined) {
-      medicalRecord.followUpNotes = medicalRecord.followUpRequired && followUpNotes ? followUpNotes.trim() : '';
+      updateData.follow_up_notes = updateData.follow_up_required && followUpNotes ? followUpNotes.trim() : '';
     }
 
-    await medicalRecord.save();
+    const { data: updatedMedicalRecord, error: updateErr } = await supabase
+      .from('medical_records')
+      .update(updateData)
+      .eq('id', recordId)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
 
     try {
-      await sendPrescriptionSummaryEmail(medicalRecord, medicalRecord.patient, medicalRecord.doctor);
+      await sendPrescriptionSummaryEmail(updatedMedicalRecord, medicalRecord.patient, medicalRecord.doctor);
     } catch (emailError) {
       console.error('Error queuing prescription summary email:', emailError);
     }
@@ -455,7 +501,7 @@ router.put('/:recordId', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       message: 'Prescription updated successfully',
-      medicalRecord
+      medicalRecord: updatedMedicalRecord
     });
 
   } catch (err) {

@@ -1,18 +1,24 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
-const Doctor = require('../models/Doctor');
+const supabase = require('../config/supabase');
+const crypto = require('crypto');
 
 router.get('/working-hours', authMiddleware, async (req, res) => {
   if (req.user.userType !== 'doctor') {
     return res.status(403).json({ message: 'Access denied. Not a doctor.' });
   }
   try {
-    const doctor = await Doctor.findById(req.user.userId);
-    if (!doctor) {
+    const { data: doctor, error } = await supabase
+      .from('doctors')
+      .select('working_hours')
+      .eq('id', req.user.userId)
+      .maybeSingle();
+      
+    if (error || !doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
-    res.json(doctor.workingHours);
+    res.json(doctor.working_hours || {});
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
@@ -27,15 +33,16 @@ router.post('/working-hours', authMiddleware, async (req, res) => {
   const { workingHours } = req.body; 
 
   try {
-    const doctor = await Doctor.findByIdAndUpdate(
-      req.user.userId,
-      { workingHours: workingHours }, 
-      { new: true } 
-    );
-    if (!doctor) {
-      return res.status(404).json({ message: 'Doctor not found' });
-    }
-    res.json(doctor.workingHours);
+    const { data: doctor, error } = await supabase
+      .from('doctors')
+      .update({ working_hours: workingHours || {} })
+      .eq('id', req.user.userId)
+      .select('working_hours')
+      .single();
+      
+    if (error) throw error;
+    
+    res.json(doctor.working_hours);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
@@ -54,16 +61,35 @@ router.post('/blocked-times', authMiddleware, async (req, res) => {
   }
 
   try {
-    const doctor = await Doctor.findById(req.user.userId);
-    if (!doctor) {
+    const { data: doctor, error: fetchErr } = await supabase
+      .from('doctors')
+      .select('blocked_times')
+      .eq('id', req.user.userId)
+      .maybeSingle();
+      
+    if (fetchErr || !doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    const newBlock = { reason, date, startTime, endTime };
-    doctor.blockedTimes.push(newBlock);
-    await doctor.save();
+    const newBlock = { 
+      _id: crypto.randomUUID(),
+      reason, 
+      date, 
+      startTime, 
+      endTime 
+    };
+    
+    const currentBlockedTimes = doctor.blocked_times || [];
+    currentBlockedTimes.push(newBlock);
 
-    res.status(201).json(doctor.blockedTimes[doctor.blockedTimes.length - 1]);
+    const { error: updateErr } = await supabase
+      .from('doctors')
+      .update({ blocked_times: currentBlockedTimes })
+      .eq('id', req.user.userId);
+      
+    if (updateErr) throw updateErr;
+
+    res.status(201).json(newBlock);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
@@ -76,21 +102,33 @@ router.delete('/blocked-times/:blockId', authMiddleware, async (req, res) => {
   }
 
   try {
-    const doctor = await Doctor.findById(req.user.userId);
-    if (!doctor) {
+    const { data: doctor, error: fetchErr } = await supabase
+      .from('doctors')
+      .select('blocked_times')
+      .eq('id', req.user.userId)
+      .maybeSingle();
+      
+    if (fetchErr || !doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    const blockIndex = doctor.blockedTimes.findIndex(
-      (block) => block._id.toString() === req.params.blockId
+    const currentBlockedTimes = doctor.blocked_times || [];
+    const blockIndex = currentBlockedTimes.findIndex(
+      (block) => block._id === req.params.blockId
     );
 
     if (blockIndex === -1) {
       return res.status(404).json({ message: 'Blocked time not found.' });
     }
 
-    doctor.blockedTimes.splice(blockIndex, 1);
-    await doctor.save();
+    currentBlockedTimes.splice(blockIndex, 1);
+    
+    const { error: updateErr } = await supabase
+      .from('doctors')
+      .update({ blocked_times: currentBlockedTimes })
+      .eq('id', req.user.userId);
+      
+    if (updateErr) throw updateErr;
 
     res.json({ message: 'Blocked time removed successfully.' });
   } catch (err) {

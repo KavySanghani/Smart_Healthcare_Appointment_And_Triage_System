@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Groq = require('groq-sdk');
 const protect = require('../middleware/auth');
-const Appointment = require('../models/Appointment');
+const supabase = require('../config/supabase');
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
@@ -121,43 +121,50 @@ Classification:
 `;
 
 const formatTriageData = (appointment) => {
-const symptomsList = appointment.symptomsList || [];
-const symptomsOther = appointment.symptomsOther || '';
+const symptomsList = appointment.symptoms_list || [];
+const symptomsOther = appointment.symptoms_other || '';
 const allSymptoms = [...symptomsList];
 if (symptomsOther) {
-allSymptoms.push(symptomsOther);
+  allSymptoms.push(symptomsOther);
 }
 
-const severeSymptoms = appointment.severeSymptomCheck || [];
+const severeSymptoms = appointment.severe_symptoms_check || [];
 
-const conditions = appointment.preExistingConditions || [];
-const conditionsOther = appointment.preExistingConditionsOther || '';
+const conditions = appointment.pre_existing_conditions || [];
+const conditionsOther = appointment.pre_existing_conditions_other || '';
 const allConditions = [...conditions];
 if (conditionsOther) {
-allConditions.push(conditionsOther);
+  allConditions.push(conditionsOther);
 }
 
-const familyHistory = appointment.familyHistory || [];
-const familyHistoryOther = appointment.familyHistoryOther || '';
+const familyHistory = appointment.family_history || [];
+const familyHistoryOther = appointment.family_history_other || '';
 const allFamilyHistory = [...familyHistory];
 if (familyHistoryOther) {
-allFamilyHistory.push(familyHistoryOther);
+  allFamilyHistory.push(familyHistoryOther);
+}
+
+let age = 'Unknown';
+if (appointment.birth_date) {
+  const birthDate = new Date(appointment.birth_date);
+  const today = new Date();
+  age = today.getFullYear() - birthDate.getFullYear();
 }
 
 return `
 PATIENT TRIAGE ASSESSMENT:
 
 CHIEF COMPLAINT:
-${appointment.primaryReason || appointment.reasonForVisit || 'Not specified'}
+${appointment.primary_reason || appointment.reason_for_visit || 'Not specified'}
 
 CURRENT SYMPTOMS:
-${allSymptoms.length > 0 ? allSymptoms.map(s => `- ${s}`).join('\n') : '- None reported'}
+${allSymptoms.length > 0 ? allSymptoms.map(s => '- ' + s).join('\\n') : '- None reported'}
 
 SYMPTOM ONSET:
-${appointment.symptomsBegin || 'Unknown'}
+${appointment.symptoms_begin || 'Unknown'}
 
 SEVERE SYMPTOMS - RED FLAGS:
-${severeSymptoms.length > 0 ? '- ' + severeSymptoms.join('\n- ') : 'None reported'}
+${severeSymptoms.length > 0 ? '- ' + severeSymptoms.join('\\n- ') : 'None reported'}
 ${severeSymptoms.includes('Severe chest pain or pressure') ? 'CRITICAL: Severe chest pain reported' : ''}
 ${severeSymptoms.includes('Sudden difficulty breathing or shortness of breath') ? 'CRITICAL: Respiratory distress reported' : ''}
 ${severeSymptoms.includes('Sudden confusion, disorientation, or difficulty speaking') ? 'CRITICAL: Neurological symptoms reported' : ''}
@@ -169,13 +176,13 @@ ${severeSymptoms.includes('Uncontrolled bleeding') ? 'CRITICAL: Uncontrolled ble
 MEDICAL HISTORY:
 
 Pre-existing Conditions:
-${allConditions.length > 0 ? '- ' + allConditions.join('\n- ') : 'None'}
+${allConditions.length > 0 ? '- ' + allConditions.join('\\n- ') : 'None'}
 
 Past Surgeries/Hospitalizations:
-${appointment.pastSurgeries || 'None'}
+${appointment.past_surgeries || 'None'}
 
 Family Medical History:
-${allFamilyHistory.length > 0 ? '- ' + allFamilyHistory.join('\n- ') : 'None'}
+${allFamilyHistory.length > 0 ? '- ' + allFamilyHistory.join('\\n- ') : 'None'}
 
 Current Medications:
 ${appointment.medications || 'None'}
@@ -184,7 +191,7 @@ Allergies:
 ${appointment.allergies || 'None'}
 
 DEMOGRAPHICS:
-Age: ${appointment.age || 'Unknown'}
+Age: ${age}
 Sex: ${appointment.sex || 'Unknown'}
 ;
 
@@ -223,19 +230,24 @@ Respond in this exact JSON format:
 
 router.get('/appointment/:appointmentId', protect, async (req, res) => {
   try {
-    const appointment = await Appointment.findById(req.params.appointmentId);
-    
-    if (!appointment) {
+    const appointmentId = req.params.appointmentId;
+    const { data: appointment, error: aptErr } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('id', appointmentId)
+      .maybeSingle();
+      
+    if (!appointment || aptErr) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    if (appointment.triagePriority && appointment.triagePriorityLevel) {
+    if (appointment.triage_priority && appointment.triage_priority_level) {
       return res.json({
         success: true,
         triage: {
-          priority: appointment.triagePriority,
-          priorityLevel: appointment.triagePriorityLevel,
-          label: appointment.triageLabel
+          priority: appointment.triage_priority,
+          priorityLevel: appointment.triage_priority_level,
+          label: appointment.triage_label
         },
         cached: true
       });
@@ -244,11 +256,11 @@ router.get('/appointment/:appointmentId', protect, async (req, res) => {
     const patientData = formatTriageData(appointment);
     const triageResult = await performAITriage(patientData);
 
-    appointment.triagePriority = triageResult.priority;
-    appointment.triagePriorityLevel = triageResult.priorityLevel;
-    appointment.triageLabel = triageResult.label;
-    
-    await appointment.save();
+    await supabase.from('appointments').update({
+        triage_priority: triageResult.priority,
+        triage_priority_level: triageResult.priorityLevel,
+        triage_label: triageResult.label
+    }).eq('id', appointmentId);
 
     res.json({
       success: true,

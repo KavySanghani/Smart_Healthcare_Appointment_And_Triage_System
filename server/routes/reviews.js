@@ -1,28 +1,34 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
-const Review = require('../models/Review');
-const Doctor = require('../models/Doctor');
-const Appointment = require('../models/Appointment');
+const supabase = require('../config/supabase');
 
 async function updateDoctorRating(doctorId) {
-  const reviews = await Review.find({ doctor: doctorId });
+  const { data: reviews, error } = await supabase
+    .from('reviews')
+    .select('rating')
+    .eq('doctor_id', doctorId);
 
-  if (reviews.length === 0) {
-    await Doctor.findByIdAndUpdate(doctorId, {
-      averageRating: 0,
-      reviewCount: 0,
-    });
+  if (error) {
+    console.error('Error fetching reviews for rating update:', error);
+    return;
+  }
+
+  if (!reviews || reviews.length === 0) {
+    await supabase.from('doctors').update({
+      average_rating: 0,
+      review_count: 0,
+    }).eq('id', doctorId);
     return;
   }
 
   const totalRating = reviews.reduce((acc, review) => acc + review.rating, 0);
   const average = totalRating / reviews.length;
 
-  await Doctor.findByIdAndUpdate(doctorId, {
-    averageRating: average,
-    reviewCount: reviews.length,
-  });
+  await supabase.from('doctors').update({
+    average_rating: average,
+    review_count: reviews.length,
+  }).eq('id', doctorId);
 }
 
 router.post('/', authMiddleware, async (req, res) => {
@@ -33,28 +39,43 @@ router.post('/', authMiddleware, async (req, res) => {
   const { doctorId, appointmentId, rating, comment } = req.body;
 
   try {
-    const appointment = await Appointment.findById(appointmentId);
+    const { data: appointment, error: aptErr } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('id', appointmentId)
+      .maybeSingle();
+      
+    if (!appointment || aptErr) {
+      return res.status(404).json({ message: 'Appointment not found.' });
+    }
+    
     if (appointment.status !== 'completed') {
       return res.status(400).json({ message: 'You can only review completed appointments.' });
     }
-    if (appointment.patient.toString() !== req.user.userId) {
+    
+    if (appointment.patient_id !== req.user.userId) {
       return res.status(403).json({ message: 'You are not authorized to review this appointment.' });
     }
 
-    const existingReview = await Review.findOne({ appointment: appointmentId });
+    const { data: existingReview } = await supabase
+      .from('reviews')
+      .select('id')
+      .eq('appointment_id', appointmentId)
+      .maybeSingle();
+      
     if (existingReview) {
       return res.status(400).json({ message: 'This appointment has already been reviewed.' });
     }
 
-    const newReview = new Review({
-      doctor: doctorId,
-      patient: req.user.userId,
-      appointment: appointmentId,
-      rating,
-      comment,
-    });
+    const { data: newReview, error: insertErr } = await supabase.from('reviews').insert([{
+        doctor_id: doctorId,
+        patient_id: req.user.userId,
+        appointment_id: appointmentId,
+        rating,
+        comment,
+    }]).select().single();
 
-    await newReview.save();
+    if (insertErr) throw insertErr;
 
     await updateDoctorRating(doctorId);
 
@@ -67,9 +88,16 @@ router.post('/', authMiddleware, async (req, res) => {
 
 router.get('/doctor/:doctorId', async (req, res) => {
   try {
-    const reviews = await Review.find({ doctor: req.params.doctorId })
-      .populate('patient', 'fullName') 
-      .sort({ createdAt: -1 }); 
+    const { data: reviews, error } = await supabase
+      .from('reviews')
+      .select(`
+        *,
+        patient:patients(full_name)
+      `)
+      .eq('doctor_id', req.params.doctorId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
 
     res.json(reviews);
   } catch (err) {
