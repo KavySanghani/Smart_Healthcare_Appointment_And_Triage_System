@@ -1,3 +1,17 @@
 .env
 node_modules
 .early.coverage
+# Migration & Temp Scripts
+fix*.js
+replace*.js
+
+# IDE & Agent Configs
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+server/.agents/
+server/.claude/
+server/.windsurf/
+server/skills-lock.json
+
