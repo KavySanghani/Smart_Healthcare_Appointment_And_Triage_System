@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "https://intelliconsult-api.onrender.com/api/:match*"
+    },
+    {
+      "source": "/auth/:match*",
+      "destination": "https://intelliconsult-api.onrender.com/auth/:match*"
+    }
+  ]
+}
