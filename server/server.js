@@ -12,8 +12,7 @@ const _dirname= path.resolve();
 app.use(cors({
   origin: [
     'http://localhost:5173', 
-    'https://smart-healthcare-appointment-and-tr-rho.vercel.app',
-    'https://smart-healthcare-appointment-and-triage-system-g88n82smo.vercel.app'
+    /\.vercel\.app$/
   ],
   credentials: true
 }));
