@@ -10,7 +10,11 @@ require('./config/passport')(passport);
 
 const _dirname= path.resolve();
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173', 
+    'https://smart-healthcare-appointment-and-tr-rho.vercel.app',
+    'https://smart-healthcare-appointment-and-triage-system-g88n82smo.vercel.app'
+  ],
   credentials: true
 }));
 app.use(express.json());
