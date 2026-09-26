@@ -86,7 +86,7 @@ router.post('/signup', async (req, res) => {
       throw error;
     }
     
-    const verificationURL = `http://localhost:5001/api/auth/verify-email/${token}`;
+    const verificationURL = `https://intelliconsult-api.onrender.com/api/auth/verify-email/${token}`;
     
     const message = `
       <h1>Welcome to IntelliConsult!</h1>
@@ -145,7 +145,7 @@ router.get('/verify-email/:token', async (req, res) => {
     }
     
     if (!user) {
-      return res.redirect('http://localhost:5173/login?verified=false');
+      return res.redirect('https://smart-healthcare-appointment-and-tr-rho.vercel.app/login?verified=false');
     }
     
     await supabase.from(getTable(type)).update({
@@ -154,11 +154,11 @@ router.get('/verify-email/:token', async (req, res) => {
         email_verification_token_expires: null,
     }).eq('id', user.id);
     
-    res.redirect('http://localhost:5173/login?verified=true');
+    res.redirect('https://smart-healthcare-appointment-and-tr-rho.vercel.app/login?verified=true');
     
   } catch (error) {
     console.error('Email verification error:', error);
-    res.redirect('http://localhost:5173/login?verified=false');
+    res.redirect('https://smart-healthcare-appointment-and-tr-rho.vercel.app/login?verified=false');
   }
 });
 
@@ -190,7 +190,7 @@ router.post('/forgot-password', async (req, res) => {
         password_reset_token_expires: tokenExpires,
     }).eq('id', user.id);
 
-    const resetURL = `http://localhost:5173/reset-password/${resetToken}`;
+    const resetURL = `https://smart-healthcare-appointment-and-tr-rho.vercel.app/reset-password/${resetToken}`;
 
     const message = `
       <h1>Password Reset Request</h1>
@@ -338,7 +338,7 @@ router.get('/google', passport.authenticate('google', {
 
 router.get('/google/callback',
   passport.authenticate('google', {
-    failureRedirect: 'http://localhost:5173/login?error=google_failed', 
+    failureRedirect: 'https://smart-healthcare-appointment-and-tr-rho.vercel.app/login?error=google_failed', 
     failureMessage: true,
     session: false 
   }),
@@ -364,7 +364,7 @@ router.get('/google/callback',
       }
     }
 
-    res.redirect(`http://localhost:5173/auth/callback?token=${token}&userType=${userType}&next=${encodeURIComponent(redirectPath)}`);
+    res.redirect(`https://smart-healthcare-appointment-and-tr-rho.vercel.app/auth/callback?token=${token}&userType=${userType}&next=${encodeURIComponent(redirectPath)}`);
   }
 );
 
